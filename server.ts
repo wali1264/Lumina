@@ -701,7 +701,7 @@ ${formattedAnswers}
         const responseText = await executeWithGeminiPool(async (client, keyName) => {
           console.log(`[Gemini API] Running AI review with key: ${keyName}`);
           const response = await client.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-2.5-flash",
             contents: prompt,
             config: {
               responseMimeType: "application/json",
@@ -826,7 +826,7 @@ ${formattedAnswers}
         const replyText = await executeWithGeminiPool(async (client, keyName) => {
           console.log(`[Gemini API] Running AI chat message with key: ${keyName}`);
           const chat = client.chats.create({
-            model: "gemini-3.5-flash",
+            model: "gemini-2.5-flash",
             config: {
               systemInstruction,
               temperature: 0.7,
@@ -894,7 +894,7 @@ ${formattedAnswers}
       const responseText = await executeWithGeminiPool(async (client, keyName) => {
         console.log(`[Gemini API] Running lesson generator with key: ${keyName}`);
         const response = await client.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-2.5-flash",
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -991,7 +991,7 @@ ${formattedPrev || "درسی قبلاً ثبت نشده است."}
       const responseText = await executeWithGeminiPool(async (client, keyName) => {
         console.log(`[Gemini API] Running AI peer-review with key: ${keyName}`);
         const response = await client.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-2.5-flash",
           contents: prompt,
         });
         return response.text || "";
@@ -1056,7 +1056,7 @@ ${lessonsText || "هنوز درسی برای این دوره تعریف نشده
       const responseText = await executeWithGeminiPool(async (client, keyName) => {
         console.log(`[Gemini API] Running AI course review with key: ${keyName}`);
         const response = await client.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-2.5-flash",
           contents: prompt,
         });
         return response.text || "";
