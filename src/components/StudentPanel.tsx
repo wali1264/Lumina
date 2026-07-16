@@ -526,6 +526,10 @@ export default function StudentPanel({
   const unreadNotifications = studentNotifications.filter(n => !readNotificationIds.includes(n.id));
   const unreadCount = unreadNotifications.length;
 
+  // Track loaded answers for the active lesson to detect user edits
+  const initialAnswersLoadedRef = useRef<Record<string, string>>({});
+  const lastLessonIdRef = useRef<string | null>(null);
+
   // Load previous draft answers or starter codes when switching lessons
   useEffect(() => {
     if (!activeLesson) return;
@@ -545,9 +549,29 @@ export default function StudentPanel({
         initial[q.id] = '';
       }
     });
-    setStudentAnswers(initial);
-    setSubmissionSuccessMessage('');
-  }, [selectedLessonId, submissions]);
+
+    const isLessonChanged = lastLessonIdRef.current !== activeLesson.id;
+    
+    // Check if user has edited anything in the current answers compared to what we initially loaded
+    const currentKeys = Object.keys(studentAnswers);
+    const hasUserEdited = currentKeys.length > 0 && currentKeys.some(
+      (k) => studentAnswers[k] !== initialAnswersLoadedRef.current[k]
+    );
+
+    // Check if the current state is already identical to what we want to set
+    const isSameAsCurrent = currentKeys.length === Object.keys(initial).length &&
+      currentKeys.every((k) => studentAnswers[k] === initial[k]);
+
+    // We only overwrite studentAnswers if the lesson has changed, OR if the user hasn't edited anything yet
+    if ((isLessonChanged || !hasUserEdited) && !isSameAsCurrent) {
+      setStudentAnswers(initial);
+      initialAnswersLoadedRef.current = initial;
+      if (isLessonChanged) {
+        setSubmissionSuccessMessage('');
+        lastLessonIdRef.current = activeLesson.id;
+      }
+    }
+  }, [selectedLessonId, submissions, activeLesson, studentSubmissions, studentAnswers]);
 
   // Calculate student grades and metrics
   const gradedSubs = studentSubmissions.filter(s => s.status === 'reviewed');
