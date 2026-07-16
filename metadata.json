@@ -1,0 +1,6 @@
+{
+  "name": "Lumina Academy",
+  "description": "پلتفرم آموزشی هوشمند لومینا؛ سیستم پیشرفته مدیریت، آموزش آنلاین و تصحیح تعاملی تکالیف در تمامی علوم و پایه‌های تحصیلی با کمک مربی هوش مصنوعی Gemini",
+  "requestFramePermissions": ["microphone", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
