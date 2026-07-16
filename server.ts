@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
 dotenv.config();
@@ -1075,6 +1074,7 @@ ${lessonsText || "هنوز درسی برای این دوره تعریف نشده
   if (process.env.VERCEL !== "1") {
     const startApp = async () => {
       if (process.env.NODE_ENV !== "production") {
+        const { createServer: createViteServer } = await import("vite");
         const vite = await createViteServer({
           server: { middlewareMode: true },
           appType: "spa",
