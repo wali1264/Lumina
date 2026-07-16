@@ -193,12 +193,11 @@ function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI(clientOptions);
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
-  // Middleware to support larger payloads for base64 image simulations
-  app.use(express.json({ limit: "20mb" }));
+// Middleware to support larger payloads for base64 image simulations
+app.use(express.json({ limit: "20mb" }));
   app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
   // --- API Routes ---
@@ -1073,23 +1072,27 @@ ${lessonsText || "هنوز درسی برای این دوره تعریف نشده
 
   // --- Vite & Production Static File Serving Middleware ---
 
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+  if (process.env.VERCEL !== "1") {
+    const startApp = async () => {
+      if (process.env.NODE_ENV !== "production") {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: "spa",
+        });
+        app.use(vite.middlewares);
+      } else {
+        const distPath = path.join(process.cwd(), "dist");
+        app.use(express.static(distPath));
+        app.get("*", (req, res) => {
+          res.sendFile(path.join(distPath, "index.html"));
+        });
+      }
+
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
+    };
+    startApp();
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+export default app;
