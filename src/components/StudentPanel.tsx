@@ -111,7 +111,7 @@ export default function StudentPanel({
   const myLevelLessons = (activeCourseId 
     ? lessons.filter(l => l.courseId === activeCourseId)
     : []
-  ).sort((a, b) => (a.order || 0) - (b.order || 0));
+  ).sort((a, b) => (a.order || 0) - (b.order || 0) || new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
 
   const [selectedLessonId, setSelectedLessonId] = useState<string>(myLevelLessons[0]?.id || 'l1');
 
@@ -120,7 +120,7 @@ export default function StudentPanel({
     if (activeCourseId) {
       const courseLessons = lessons
         .filter(l => l.courseId === activeCourseId)
-        .sort((a, b) => (a.order || 0) - (b.order || 0));
+        .sort((a, b) => (a.order || 0) - (b.order || 0) || new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
       if (courseLessons.length > 0) {
         const isCurrentInCourse = courseLessons.some(l => l.id === selectedLessonId);
         if (!isCurrentInCourse) {

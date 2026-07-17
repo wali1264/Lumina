@@ -293,7 +293,9 @@ export default function TeacherPanel({
 
   // Filter courses, lessons and students for THIS teacher
   const teacherCourses = courses.filter(c => c.teacherId === currentUser.id);
-  const teacherLessons = lessons.filter(l => l.teacherId === currentUser.id || !l.teacherId);
+  const teacherLessons = lessons
+    .filter(l => l.teacherId === currentUser.id || !l.teacherId)
+    .sort((a, b) => (a.order || 0) - (b.order || 0) || new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
   const myStudents = users.filter(u => u.role === 'student' && u.selectedTeacherId === currentUser.id);
   const pendingStudents = myStudents.filter(s => s.statusByTeacher === 'pending');
   const acceptedStudents = myStudents.filter(s => s.statusByTeacher === 'accepted');
@@ -451,7 +453,11 @@ export default function TeacherPanel({
             points: Number(q.points) || 20
           })),
           teacherId: currentUser.id,
-          order: lessons.length + 1,
+          order: (() => {
+            const courseLessons = lessons.filter(l => l.courseId === selectedCourse.id);
+            const maxOrder = courseLessons.reduce((max, l) => Math.max(max, l.order || 0), 0);
+            return maxOrder + 1;
+          })(),
           createdAt: new Date().toISOString()
         };
         onAddLesson(newLesson);
@@ -594,7 +600,11 @@ export default function TeacherPanel({
         }
       ],
       teacherId: currentUser.id,
-      order: lessons.length + 1,
+      order: (() => {
+        const courseLessons = lessons.filter(l => l.courseId === defaultCourseId);
+        const maxOrder = courseLessons.reduce((max, l) => Math.max(max, l.order || 0), 0);
+        return maxOrder + 1;
+      })(),
       createdAt: new Date().toISOString()
     };
     onAddLesson(empty);
