@@ -763,9 +763,10 @@ export default function App() {
           onUpdateStudentLevel={handleUpdateStudentLevel}
           onGradeSubmission={handleGradeSubmission}
           onLogout={handleLogout}
+          isLoadingDb={isLoadingDb || isSyncing}
+          isDbLoaded={isDbLoaded}
         />
         <PWAUpdateToast />
-        <DbSyncIndicator isLoading={isLoadingDb || isSyncing} isLoaded={isDbLoaded} />
       </>
     );
   }
@@ -787,9 +788,10 @@ export default function App() {
           onAddSubmission={handleAddSubmission}
           onAddRating={handleAddRating}
           onLogout={handleLogout}
+          isLoadingDb={isLoadingDb || isSyncing}
+          isDbLoaded={isDbLoaded}
         />
         <PWAUpdateToast />
-        <DbSyncIndicator isLoading={isLoadingDb || isSyncing} isLoaded={isDbLoaded} />
       </>
     );
   }

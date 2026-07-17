@@ -11,6 +11,7 @@ import DrawingCanvas from './DrawingCanvas';
 import AudioRecorder from './AudioRecorder';
 import AdvancedCodeEditor from './AdvancedCodeEditor';
 import NotebookCameraCapture from './NotebookCameraCapture';
+import DbSyncIndicator from './DbSyncIndicator';
 
 interface StudentPanelProps {
   currentUser: UserType;
@@ -26,6 +27,8 @@ interface StudentPanelProps {
   onAddSubmission: (newSub: Submission) => void;
   onAddRating?: (rating: Rating) => void;
   onLogout: () => void;
+  isLoadingDb?: boolean;
+  isDbLoaded?: boolean;
 }
 
 const getYoutubeEmbedUrl = (url: string) => {
@@ -76,7 +79,9 @@ export default function StudentPanel({
   onEnrollStudent,
   onAddSubmission,
   onAddRating,
-  onLogout
+  onLogout,
+  isLoadingDb = false,
+  isDbLoaded = false
 }: StudentPanelProps) {
   
   // Get active lessons belonging to the student's baseline level
@@ -924,6 +929,9 @@ export default function StudentPanel({
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Database Sync Indicator */}
+            <DbSyncIndicator isLoading={isLoadingDb} isLoaded={isDbLoaded} isHeaderInline={true} />
+
             {/* Notification Bell */}
             <div className="relative">
               <button
@@ -1872,16 +1880,7 @@ export default function StudentPanel({
                       </div>
                     )}
 
-                    {!isCompleted && !isTeacherTryAgain && isPendingWaitingForAssistant && (
-                      <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-2xl text-indigo-950">
-                        <p className="font-black text-xs text-indigo-900 flex items-center gap-1.5">
-                          <span>⧗ پاسخ‌ها ارسال شد</span>
-                        </p>
-                        <p className="text-[10px] font-semibold leading-relaxed mt-1">
-                          پاسخ‌های شما ثبت شده و استادیار هوش مصنوعی در حال انجام ارزیابی اولیه است. این فرآیند چند ثانیه زمان می‌برد... پس از آن پاسخ‌ها جهت نمره‌دهی نهایی برای مربی ارسال می‌شود.
-                        </p>
-                      </div>
-                    )}
+
 
                     <div className="space-y-4">
                       {activeLesson.questions.map((q) => {

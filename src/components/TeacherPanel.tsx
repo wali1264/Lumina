@@ -9,6 +9,7 @@ import {
 import { User as UserType, Lesson, Submission, Question, AnswerType, LessonImage, Course, CourseEnrollment, DirectMessage } from '../types';
 import AudioRecorder from './AudioRecorder';
 import { Paperclip, File, Download, UploadCloud, RefreshCw } from 'lucide-react';
+import DbSyncIndicator from './DbSyncIndicator';
 
 interface TeacherPanelProps {
   currentUser: UserType;
@@ -37,6 +38,8 @@ interface TeacherPanelProps {
     isTryAgainRequested?: boolean
   ) => void;
   onLogout: () => void;
+  isLoadingDb?: boolean;
+  isDbLoaded?: boolean;
 }
 
 const compressImageBase64 = (base64Str: string, maxWidth = 1020, quality = 0.8): Promise<string> => {
@@ -78,7 +81,9 @@ const compressImageBase64 = (base64Str: string, maxWidth = 1020, quality = 0.8):
 export default function TeacherPanel({
   currentUser, users, courses, lessons, submissions, enrollments, directMessages, onSendDirectMessage,
   onAddCourse, onUpdateCourse, onDeleteCourse, onAddLesson, onUpdateLesson, onDeleteLesson,
-  onApproveEnrollment, onApproveStudent, onUpdateStudentLevel, onGradeSubmission, onLogout
+  onApproveEnrollment, onApproveStudent, onUpdateStudentLevel, onGradeSubmission, onLogout,
+  isLoadingDb = false,
+  isDbLoaded = false
 }: TeacherPanelProps) {
   
   // Tab control
@@ -946,6 +951,9 @@ export default function TeacherPanel({
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Database Sync Indicator */}
+            <DbSyncIndicator isLoading={isLoadingDb} isLoaded={isDbLoaded} isHeaderInline={true} />
+
             {/* Notification Bell */}
             <div className="relative">
               <button
@@ -2814,9 +2822,12 @@ export default function TeacherPanel({
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-indigo-700 font-bold focus:outline-none border-indigo-200"
                   >
-                    {teacherCourses.map((c) => (
+                    {teacherCourses.filter(c => c.level === editingLesson.level).map((c) => (
                       <option key={c.id} value={c.id}>{c.title}</option>
                     ))}
+                    {teacherCourses.filter(c => c.level === editingLesson.level).length === 0 && (
+                      <option value="">دوره مرتبط یافت نشد!</option>
+                    )}
                   </select>
                 </div>
                 <div className="space-y-1 md:col-span-1">
@@ -2832,7 +2843,17 @@ export default function TeacherPanel({
                   <label className="text-[10px] font-bold text-slate-500">سطح درسی</label>
                   <select
                     value={editingLesson.level}
-                    onChange={(e) => setEditingLesson({ ...editingLesson, level: e.target.value as any })}
+                    onChange={(e) => {
+                      const newLevel = e.target.value as 'beginner' | 'intermediate' | 'advanced';
+                      const matchingCourses = teacherCourses.filter(c => c.level === newLevel);
+                      const firstMatchingCourse = matchingCourses[0];
+                      setEditingLesson({
+                        ...editingLesson,
+                        level: newLevel,
+                        courseId: firstMatchingCourse?.id || '',
+                        category: firstMatchingCourse?.category || editingLesson.category
+                      });
+                    }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold focus:outline-none"
                   >
                     <option value="beginner">مبتدی (Beginner)</option>

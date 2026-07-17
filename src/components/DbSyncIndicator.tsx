@@ -4,9 +4,10 @@ import { Database, Check, Loader2, Wifi, WifiOff } from 'lucide-react';
 interface DbSyncIndicatorProps {
   isLoading: boolean;
   isLoaded: boolean;
+  isHeaderInline?: boolean;
 }
 
-export default function DbSyncIndicator({ isLoading, isLoaded }: DbSyncIndicatorProps) {
+export default function DbSyncIndicator({ isLoading, isLoaded, isHeaderInline = false }: DbSyncIndicatorProps) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -69,7 +70,10 @@ export default function DbSyncIndicator({ isLoading, isLoaded }: DbSyncIndicator
 
   return (
     <div 
-      className={`fixed bottom-4 left-4 z-50 flex items-center gap-2 px-3 py-2 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-300 cursor-pointer select-none font-sans text-[10px] md:text-xs font-bold ${bgClass}`}
+      className={isHeaderInline 
+        ? `flex items-center gap-2 px-3 py-1.5 rounded-xl border backdrop-blur-sm shadow-sm transition-all duration-300 cursor-pointer select-none font-sans text-[10px] md:text-xs font-bold ${bgClass}`
+        : `fixed bottom-4 left-4 z-50 flex items-center gap-2 px-3 py-2 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-300 cursor-pointer select-none font-sans text-[10px] md:text-xs font-bold ${bgClass}`
+      }
       dir="rtl"
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
