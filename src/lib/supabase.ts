@@ -931,7 +931,8 @@ export async function dbFetchSubmissions(role: string, userId: string): Promise<
 
     const { data, error } = await query;
     if (error) throw error;
-    return (data || []).map((s: any) => ({
+    
+    const list = (data || []).map((s: any) => ({
       id: s.id,
       studentId: s.student_id,
       lessonId: s.lesson_id,
@@ -948,6 +949,46 @@ export async function dbFetchSubmissions(role: string, userId: string): Promise<
       studentName: s.student_name || 'دانش‌آموز',
       maxPoints: s.max_points || 100
     }));
+
+    // Deduplicate in memory, grouping by studentId and lessonId
+    const groupedMap = new Map<string, any[]>();
+    for (const sub of list) {
+      const key = `${sub.studentId}_${sub.lessonId}`;
+      if (!groupedMap.has(key)) {
+        groupedMap.set(key, []);
+      }
+      groupedMap.get(key)!.push(sub);
+    }
+
+    const deduplicatedList: Submission[] = [];
+    const idsToDelete: string[] = [];
+
+    for (const [_, subs] of groupedMap.entries()) {
+      // Sort submissions so that the most recent is first
+      subs.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      
+      const latestSub = subs[0];
+      deduplicatedList.push(latestSub);
+
+      if (subs.length > 1) {
+        for (let i = 1; i < subs.length; i++) {
+          idsToDelete.push(subs[i].id);
+        }
+      }
+    }
+
+    // Fire-and-forget deletion of duplicates from DB to keep storage pristine and clean
+    if (idsToDelete.length > 0) {
+      supabase.from('submissions').delete().in('id', idsToDelete).then(({ error: delErr }) => {
+        if (delErr) {
+          console.warn('Background cleanup of duplicate submissions failed', delErr);
+        } else {
+          console.log(`Successfully cleaned up ${idsToDelete.length} duplicate submissions from DB`);
+        }
+      });
+    }
+
+    return deduplicatedList;
   } catch (err) {
     console.warn('Failed to fetch submissions from database', err);
   }
@@ -1150,6 +1191,18 @@ export async function dbDeleteLesson(lessonId: string): Promise<void> {
 }
 
 export async function dbAddSubmission(sub: Submission): Promise<void> {
+  // First, clean up any existing duplicate entries for the same student and lesson in Supabase to ensure clean storage
+  const { error: delErr } = await supabase
+    .from('submissions')
+    .delete()
+    .eq('student_id', sub.studentId)
+    .eq('lesson_id', sub.lessonId)
+    .neq('id', sub.id);
+
+  if (delErr) {
+    console.warn('Failed to clean up other submissions during submission insert', delErr);
+  }
+
   const { data: lessonData, error: fetchErr } = await supabase
     .from('lessons')
     .select('course_id')

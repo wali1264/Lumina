@@ -51,13 +51,28 @@ export default function NotebookCameraCapture({ value, onChange, disabled }: Not
     try {
       const video = videoRef.current;
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      
+      let width = video.videoWidth || 640;
+      let height = video.videoHeight || 480;
+      const maxDim = 800; // Limit maximum dimension to 800px for massive compression and quick uploads
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const base64 = canvas.toDataURL('image/jpeg', 0.85);
+        ctx.drawImage(video, 0, 0, width, height);
+        // Use JPEG format with 0.5 quality for 90%+ file size reduction
+        const base64 = canvas.toDataURL('image/jpeg', 0.5);
         onChange(base64);
         stopCamera();
       }
@@ -71,15 +86,42 @@ export default function NotebookCameraCapture({ value, onChange, disabled }: Not
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert('حداکثر حجم تصویر آپلود شده ۵ مگابایت است.');
+    if (file.size > 10 * 1024 * 1024) {
+      alert('حداکثر حجم تصویر آپلود شده ۱۰ مگابایت است.');
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result) {
-        onChange(event.target.result as string);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 800; // Limit maximum dimension to 800px
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            // Compress heavily using 0.5 JPEG quality
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5);
+            onChange(compressedBase64);
+          } else {
+            onChange(event.target!.result as string);
+          }
+        };
+        img.src = event.target.result as string;
       }
     };
     reader.readAsDataURL(file);

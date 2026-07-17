@@ -117,7 +117,8 @@ export default function DrawingCanvas({ value, onChange, disabled }: DrawingCanv
   const saveCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const base64 = canvas.toDataURL('image/png');
+    // Compress by saving as jpeg with 0.5 quality
+    const base64 = canvas.toDataURL('image/jpeg', 0.5);
     onChange(base64);
   };
 

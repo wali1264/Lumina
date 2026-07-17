@@ -31,6 +31,7 @@ import {
   dbAddRating
 } from './lib/supabase';
 import PWAUpdateToast from './components/PWAUpdateToast';
+import DbSyncIndicator from './components/DbSyncIndicator';
 
 const pruneDirectMessages = (msgs: DirectMessage[]): DirectMessage[] => {
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -82,6 +83,7 @@ export default function App() {
   const [ratings, setRatings] = useState<Rating[]>([]);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<UserType | null>(() => {
     const saved = localStorage.getItem('ai_current_session');
@@ -99,6 +101,7 @@ export default function App() {
     const loadRoleData = async () => {
       if (!currentUser) {
         setIsLoadingDb(true);
+        setIsSyncing(true);
         try {
           const [dbCourses, dbUsers, dbRatings] = await Promise.all([
             dbFetchCourses('admin', ''), // Fetch all courses for catalog
@@ -110,68 +113,88 @@ export default function App() {
           if (dbRatings) setRatings(dbRatings);
         } catch (err) {
           console.warn('Failed to load public landing data from Supabase', err);
+        } finally {
+          setLessons([]);
+          setSubmissions([]);
+          setEnrollments([]);
+          setDirectMessages([]);
+          setIsLoadingDb(false);
+          setIsSyncing(false);
+          setIsDbLoaded(true);
         }
-        setLessons([]);
-        setSubmissions([]);
-        setEnrollments([]);
-        setDirectMessages([]);
-        setIsLoadingDb(false);
-        setIsDbLoaded(true);
         return;
       }
 
+      // Progressive Loading Design:
+      // 1. Instantly load critical core metadata (Users & Courses) to unlock page rendering.
       setIsLoadingDb(true);
+      setIsSyncing(true);
       try {
-        const [dbUsers, dbCourses, dbLessons, dbSubmissions, dbEnrollments, dbMsgs, dbRatings] = await Promise.all([
+        const [dbUsers, dbCourses] = await Promise.all([
           dbFetchUsers(currentUser.role, currentUser.id),
-          dbFetchCourses(currentUser.role, currentUser.id),
-          dbFetchLessons(currentUser.role, currentUser.id),
-          dbFetchSubmissions(currentUser.role, currentUser.id),
-          dbFetchEnrollments(currentUser.role, currentUser.id),
-          dbFetchDirectMessages(currentUser.id),
-          dbFetchRatings()
+          dbFetchCourses(currentUser.role, currentUser.id)
         ]);
 
         if (dbUsers) setUsers(dbUsers);
         if (dbCourses) setCourses(dbCourses);
-        
-        let finalLessons = dbLessons || [];
-        if (currentUser.role === 'teacher' && dbLessons && dbCourses) {
-          const pcsCourse = dbCourses.find(c => c.id === 'c_1784107439780' || c.title.toLowerCase().includes('pcs') || c.title.includes('علوم کامپیوتر'));
-          const hgCourse = dbCourses.find(c => c.id === 'c_1784019915629' || c.title.toLowerCase().includes('hgytyt'));
-          
-          if (pcsCourse && hgCourse) {
-            const lessonsToMove = dbLessons.filter(l => l.courseId === hgCourse.id && (
-              l.title.includes('تفکر محاسباتی') || l.title.includes('اطلاعات') || l.title.includes('درس ۱') || l.title.includes('درس ۲') || l.title.includes('درس 2')
-            ));
-            
-            if (lessonsToMove.length > 0) {
-              console.log('Auto-healing: Found lessons to move from hgytyt to PCS 101:', lessonsToMove);
-              finalLessons = dbLessons.map(l => {
-                if (l.courseId === hgCourse.id && (
-                  l.title.includes('تفکر محاسباتی') || l.title.includes('اطلاعات') || l.title.includes('درس ۱') || l.title.includes('درس ۲') || l.title.includes('درس 2')
-                )) {
-                  const updated = { ...l, courseId: pcsCourse.id };
-                  dbUpdateLesson(updated).catch(err => {
-                    console.error('Auto-healing: Failed to update lesson course association in Supabase', err);
-                  });
-                  return updated;
-                }
-                return l;
-              });
-            }
-          }
-        }
-        setLessons(finalLessons);
 
-        if (dbSubmissions) setSubmissions(dbSubmissions);
-        if (dbEnrollments) setEnrollments(dbEnrollments);
-        if (dbMsgs) setDirectMessages(dbMsgs);
-        if (dbRatings) setRatings(dbRatings);
-      } catch (err) {
-        console.warn('Could not complete database load, utilizing local fallbacks', err);
-      } finally {
+        // UI becomes fully interactive immediately! 
         setIsLoadingDb(false);
+
+        // 2. Load the remaining heavier tables in parallel background requests.
+        // This keeps the transitions buttery-smooth while hydrating details progressively.
+        Promise.all([
+          dbFetchLessons(currentUser.role, currentUser.id).then(dbLessons => {
+            if (!dbLessons) return;
+            let finalLessons = dbLessons;
+            if (currentUser.role === 'teacher' && dbCourses) {
+              const pcsCourse = dbCourses.find(c => c.id === 'c_1784107439780' || c.title.toLowerCase().includes('pcs') || c.title.includes('علوم کامپیوتر'));
+              const hgCourse = dbCourses.find(c => c.id === 'c_1784019915629' || c.title.toLowerCase().includes('hgytyt'));
+              
+              if (pcsCourse && hgCourse) {
+                const lessonsToMove = dbLessons.filter(l => l.courseId === hgCourse.id && (
+                  l.title.includes('تفکر محاسباتی') || l.title.includes('اطلاعات') || l.title.includes('درس ۱') || l.title.includes('درس ۲') || l.title.includes('درس 2')
+                ));
+                
+                if (lessonsToMove.length > 0) {
+                  finalLessons = dbLessons.map(l => {
+                    if (l.courseId === hgCourse.id && (
+                      l.title.includes('تفکر محاسباتی') || l.title.includes('اطلاعات') || l.title.includes('درس ۱') || l.title.includes('درس ۲') || l.title.includes('درس 2')
+                    )) {
+                      const updated = { ...l, courseId: pcsCourse.id };
+                      dbUpdateLesson(updated).catch(err => {
+                        console.error('Auto-healing lesson update failed', err);
+                      });
+                      return updated;
+                    }
+                    return l;
+                  });
+                }
+              }
+            }
+            setLessons(finalLessons);
+          }),
+          dbFetchSubmissions(currentUser.role, currentUser.id).then(dbSubmissions => {
+            if (dbSubmissions) setSubmissions(dbSubmissions);
+          }),
+          dbFetchEnrollments(currentUser.role, currentUser.id).then(dbEnrollments => {
+            if (dbEnrollments) setEnrollments(dbEnrollments);
+          }),
+          dbFetchDirectMessages(currentUser.id).then(dbMsgs => {
+            if (dbMsgs) setDirectMessages(dbMsgs);
+          }),
+          dbFetchRatings().then(dbRatings => {
+            if (dbRatings) setRatings(dbRatings);
+          })
+        ]).finally(() => {
+          setIsSyncing(false);
+          setIsDbLoaded(true);
+        });
+
+      } catch (err) {
+        console.warn('Could not complete database progressive load, utilizing local fallbacks', err);
+        setIsLoadingDb(false);
+        setIsSyncing(false);
         setIsDbLoaded(true);
       }
     };
@@ -193,6 +216,7 @@ export default function App() {
     if (!currentUser) return;
 
     const pollInterval = setInterval(async () => {
+      setIsSyncing(true);
       try {
         const [dbSubmissions, dbEnrollments, dbMsgs] = await Promise.all([
           dbFetchSubmissions(currentUser.role, currentUser.id),
@@ -211,6 +235,8 @@ export default function App() {
         }
       } catch (err) {
         console.warn('Background sync polling failed', err);
+      } finally {
+        setIsSyncing(false);
       }
     }, 10000);
 
@@ -590,14 +616,16 @@ export default function App() {
       );
       if (existingIdx !== -1) {
         // Overwrite/update existing submission
+        const existingSub = prev[existingIdx];
         updatedSub = {
-          ...prev[existingIdx],
-          id: newSub.id, // Keep the new ID to match subsequent update
+          ...existingSub,
+          // CRITICAL: Keep the existing submission ID! Do not use newSub.id, so we update the same row!
+          id: existingSub.id,
           submittedAt: newSub.submittedAt,
           answers: newSub.answers,
           status: 'pending',
-          attemptsCount: (prev[existingIdx].attemptsCount || 0) + 1,
-          alertTeacher: newSub.alertTeacher || (prev[existingIdx].attemptsCount || 0) + 1 >= 3,
+          attemptsCount: (existingSub.attemptsCount || 0) + 1,
+          alertTeacher: newSub.alertTeacher || (existingSub.attemptsCount || 0) + 1 >= 3,
           // Reset teacher-grading fields since it's a resubmission
           grade: undefined,
           feedback: undefined,
@@ -610,9 +638,11 @@ export default function App() {
           aiReview: undefined,
           studentAiFeedback: undefined,
         };
-        const updated = [...prev];
-        updated[existingIdx] = updatedSub;
-        return updated;
+        // Safely filter out any other duplicates from the state
+        const filtered = prev.filter(
+          (s) => !(s.studentId === newSub.studentId && s.lessonId === newSub.lessonId)
+        );
+        return [updatedSub, ...filtered];
       } else {
         // No existing submission, insert new
         return [newSub, ...prev];
@@ -676,11 +706,14 @@ export default function App() {
           initialStatusRole={kickedOutInfo?.role || undefined}
         />
         <PWAUpdateToast />
+        <DbSyncIndicator isLoading={isLoadingDb || isSyncing} isLoaded={isDbLoaded} />
       </>
     );
   }
 
-  if (isLoadingDb) {
+  // Only block screen on the very first boot when we have no layout data loaded yet
+  const isFirstBoot = isLoadingDb && courses.length === 0;
+  if (isFirstBoot) {
     return (
       <>
         <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-700" dir="rtl">
@@ -702,6 +735,7 @@ export default function App() {
           onLogout={handleLogout}
         />
         <PWAUpdateToast />
+        <DbSyncIndicator isLoading={isLoadingDb || isSyncing} isLoaded={isDbLoaded} />
       </>
     );
   }
@@ -731,6 +765,7 @@ export default function App() {
           onLogout={handleLogout}
         />
         <PWAUpdateToast />
+        <DbSyncIndicator isLoading={isLoadingDb || isSyncing} isLoaded={isDbLoaded} />
       </>
     );
   }
@@ -754,6 +789,7 @@ export default function App() {
           onLogout={handleLogout}
         />
         <PWAUpdateToast />
+        <DbSyncIndicator isLoading={isLoadingDb || isSyncing} isLoaded={isDbLoaded} />
       </>
     );
   }
@@ -767,6 +803,7 @@ export default function App() {
         </button>
       </div>
       <PWAUpdateToast />
+      <DbSyncIndicator isLoading={isLoadingDb || isSyncing} isLoaded={isDbLoaded} />
     </>
   );
 }
