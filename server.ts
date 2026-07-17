@@ -1069,6 +1069,119 @@ ${lessonsText || "هنوز درسی برای این دوره تعریف نشده
     }
   });
 
+  // 7. AI Challenge Generator (For Teachers)
+  app.post("/api/ai/generate-challenges", async (req, res) => {
+    try {
+      const { content, count } = req.body;
+      const parsedCount = Math.max(1, Math.min(10, parseInt(count) || 3));
+
+      if (!content || content.trim() === "") {
+        return res.status(400).json({ error: "متن درس برای تولید چالش‌ها الزامی است." });
+      }
+
+      const activeKey = getEffectiveGeminiKey();
+      if (!activeKey) {
+        console.warn("GEMINI_API_KEY is missing or invalid. Using simulated challenge generator.");
+        const simulatedChallenges = [];
+        const basePoints = Math.floor(100 / parsedCount);
+        const remainder = 100 - (basePoints * parsedCount);
+
+        for (let i = 0; i < parsedCount; i++) {
+          const pts = i === 0 ? basePoints + remainder : basePoints;
+          simulatedChallenges.push({
+            title: `چالش شبیه‌سازی شده شماره ${i + 1}`,
+            description: `بر اساس متن درس‌نامه، لطفاً به این سوال پاسخ دهید: مفهوم کلیدی شماره ${i + 1} چیست و چه کاربردی دارد؟`,
+            answerType: "text",
+            points: pts
+          });
+        }
+        return res.json({ questions: simulatedChallenges });
+      }
+
+      const prompt = `
+متن درس‌نامه ارسال شده توسط مدرس:
+"""
+${content}
+"""
+
+تعداد چالش‌های درخواستی: ${parsedCount} چالش.
+
+به عنوان یک طراح برنامه درسی مجرب، بر اساس متن فوق، دقیقاً ${parsedCount} چالش هوشمندانه و هدفمند طراحی کن که میزان یادگیری هنرجو از این درس را به خوبی ارزیابی کند.
+هر چالش باید دارای عنوان، شرح کامل، نوع پاسخ و بارم نمره باشد.
+
+قوانین اجباری:
+1. مجموع کل بارم نمرات (points) چالش‌های تولید شده باید دقیقاً برابر با 100 باشد. برای هر چالش بر اساس اهمیت و سختی آن بارم متفاوتی در نظر بگیر (مثلاً یکی 30، دیگری 20 و...) اما حتماً مجموع کل آن‌ها 100 شود.
+2. نوع پاسخ (answerType) برای هر چالش باید متناسب با صورت چالش، از بین یکی از مقادیر زیر انتخاب شود:
+   - 'text' (پاسخ تشریحی متنی)
+   - 'handwritten_photo' (عکس از یادداشت دستی یا تمرین دفتر)
+   - 'audio_recording' (ضبط صدا و توضیح شفاهی)
+   - 'code_editor' (کدنویسی - فقط در صورتی که درس‌نامه واقعاً کدنویسی باشد)
+   - 'mission_url' (آدرس لینک پروژه یا فعالیت ساخته‌شده)
+   - 'notebook_photo' (عکس از جزوه)
+3. تمام متن‌ها، عناوین و توضیحات باید به زبان فارسی روان و حرفه‌ای باشد.
+4. تمام مقادیر عددی داخل متن و نمرات باید با اعداد انگلیسی (مثل 10، 25، 50) نوشته شوند، نه با اعداد فارسی.
+5. خروجی باید دقیقاً با فرمت JSON توصیف شده مطابقت داشته باشد.
+
+فرمت خروجی را به عنوان یک آرایه در زیر مشخصات schema پارس کن.
+`;
+
+      const responseText = await executeWithGeminiPool(async (client, keyName) => {
+        console.log(`[Gemini API] Running challenge generator with key: ${keyName}`);
+        const response = await client.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                questions: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      title: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      answerType: {
+                        type: Type.STRING,
+                        enum: ["text", "handwritten_photo", "audio_recording", "code_editor", "mission_url", "notebook_photo"]
+                      },
+                      starterCode: { type: Type.STRING },
+                      points: { type: Type.INTEGER }
+                    },
+                    required: ["title", "description", "answerType", "points"]
+                  }
+                }
+              },
+              required: ["questions"]
+            }
+          }
+        });
+        return response.text || "{}";
+      });
+
+      const data = JSON.parse(responseText.trim());
+      
+      // Ensure points sum exactly to 100 in post-processing just in case the model deviated slightly
+      if (data.questions && Array.isArray(data.questions) && data.questions.length > 0) {
+        // limit count to what was requested
+        data.questions = data.questions.slice(0, parsedCount);
+        
+        let sum = data.questions.reduce((acc: number, q: any) => acc + (parseInt(q.points) || 0), 0);
+        if (sum !== 100) {
+          const diff = 100 - sum;
+          // add the difference to the first or largest points question
+          data.questions[0].points = (parseInt(data.questions[0].points) || 0) + diff;
+        }
+      }
+
+      res.json(data);
+    } catch (error: any) {
+      console.error("AI Challenge Generator error:", error);
+      res.status(500).json({ error: error.message || "خطا در تولید چالش‌ها توسط هوش مصنوعی" });
+    }
+  });
+
   // --- Vite & Production Static File Serving Middleware ---
 
   if (process.env.VERCEL !== "1") {

@@ -3,10 +3,10 @@ import ReactMarkdown from 'react-markdown';
 import {
   BookOpen, Users, CheckSquare, Plus, Trash2, Edit, Save, Award, Sparkles, Code, FileText,
   Image as ImageIcon, Link as LinkIcon, Mic, Send, ChevronLeft, ChevronRight, User, LogOut,
-  X, Check, CheckCircle2, ShieldAlert, Sparkle, Eye, LayoutGrid, AlertTriangle, TrendingUp, HelpCircle, GraduationCap, Compass, Bell,
+  X, Check, CheckCircle2, ShieldAlert, Sparkle, Eye, LayoutGrid, AlertTriangle, TrendingUp, HelpCircle, GraduationCap, Compass, Bell, Star,
   Volume2, Tv, Youtube
 } from 'lucide-react';
-import { User as UserType, Lesson, Submission, Question, AnswerType, LessonImage, Course, CourseEnrollment, DirectMessage } from '../types';
+import { User as UserType, Lesson, Submission, Question, AnswerType, LessonImage, Course, CourseEnrollment, DirectMessage, Rating } from '../types';
 import AudioRecorder from './AudioRecorder';
 import { Paperclip, File, Download, UploadCloud, RefreshCw } from 'lucide-react';
 import DbSyncIndicator from './DbSyncIndicator';
@@ -40,6 +40,7 @@ interface TeacherPanelProps {
   onLogout: () => void;
   isLoadingDb?: boolean;
   isDbLoaded?: boolean;
+  ratings?: Rating[];
 }
 
 const compressImageBase64 = (base64Str: string, maxWidth = 1020, quality = 0.8): Promise<string> => {
@@ -83,7 +84,8 @@ export default function TeacherPanel({
   onAddCourse, onUpdateCourse, onDeleteCourse, onAddLesson, onUpdateLesson, onDeleteLesson,
   onApproveEnrollment, onApproveStudent, onUpdateStudentLevel, onGradeSubmission, onLogout,
   isLoadingDb = false,
-  isDbLoaded = false
+  isDbLoaded = false,
+  ratings = []
 }: TeacherPanelProps) {
   
   // Tab control
@@ -155,6 +157,8 @@ export default function TeacherPanel({
   const [isGeneratingAiLesson, setIsGeneratingAiLesson] = useState(false);
   const [aiTopic, setAiTopic] = useState('');
   const [aiLevel, setAiLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('beginner');
+  const [aiChallengeCount, setAiChallengeCount] = useState<number>(3);
+  const [isGeneratingAiChallenges, setIsGeneratingAiChallenges] = useState(false);
 
   // New states for multiple supplementary resources
   const [newAudioTitle, setNewAudioTitle] = useState('');
@@ -479,6 +483,53 @@ export default function TeacherPanel({
     }
   };
 
+  // Generate challenges using AI based on lesson content
+  const handleGenerateChallengesWithAi = async () => {
+    if (!editingLesson) return;
+    if (!editingLesson.content || editingLesson.content.trim() === "") {
+      alert("⚠️ لطفا ابتدا متن درس را در تب اول بنویسید یا تولید کنید تا هوش مصنوعی بتواند بر اساس آن چالش طراحی کند.");
+      return;
+    }
+    
+    setIsGeneratingAiChallenges(true);
+    try {
+      const res = await fetch('/api/ai/generate-challenges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: editingLesson.content,
+          count: aiChallengeCount
+        })
+      });
+      
+      const data = await res.json();
+      if (res.ok && data.questions) {
+        const formattedQuestions: Question[] = data.questions.map((q: any, idx: number) => ({
+          id: `q_ai_gen_${Date.now()}_${idx}`,
+          title: q.title,
+          description: q.description,
+          answerType: q.answerType || 'text',
+          starterCode: q.starterCode || '',
+          points: Number(q.points) || 20
+        }));
+        
+        setEditingLesson({
+          ...editingLesson,
+          questions: formattedQuestions
+        });
+        
+        alert(`✨ ${formattedQuestions.length} چالش هوشمند جدید با موفقیت توسط هوش مصنوعی طراحی و جایگزین شد. لطفا آن‌ها را بررسی و در صورت نیاز ویرایش کنید.`);
+      } else {
+        alert(data.error || 'خطا در برقراری ارتباط با هوش مصنوعی برای تولید چالش‌ها');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('خطا در تولید چالش‌های هوشمند.');
+    } finally {
+      setIsGeneratingAiChallenges(false);
+    }
+  };
+
   // Ask AI for Peer Review on Lesson
   const handleRequestPeerReview = async (lesson: Lesson) => {
     setIsPeerReviewing(true);
@@ -771,50 +822,7 @@ export default function TeacherPanel({
             </div>
           </div>
 
-          {/* Quick Create Lesson Widget */}
-          <div className="bg-slate-50 border border-slate-200 p-3 rounded-2xl space-y-2">
-            <div className="flex items-center gap-1 text-[10px] font-black text-indigo-700">
-              <Sparkles size={12} className="animate-pulse" />
-              <span>ایجاد درس هوشمند با Gemini</span>
-            </div>
-            
-            {/* Course Selector for AI generation */}
-            <select
-              value={aiCourseId || (teacherCourses[0]?.id || '')}
-              onChange={(e) => setAiCourseId(e.target.value)}
-              className="w-full bg-white border border-slate-200 text-[9px] font-bold p-1.5 rounded-lg text-slate-700 focus:outline-none"
-            >
-              {teacherCourses.map(c => (
-                <option key={c.id} value={c.id}>دوره: {c.title}</option>
-              ))}
-            </select>
 
-            <input
-              type="text"
-              value={aiTopic}
-              onChange={(e) => setAiTopic(e.target.value)}
-              placeholder="موضوع (مثال: کار با Flexbox)"
-              className="w-full bg-white border border-slate-200 text-[10px] font-bold p-2 rounded-lg focus:outline-none"
-            />
-            <div className="flex items-center justify-between gap-1">
-              <select
-                value={aiLevel}
-                onChange={(e) => setAiLevel(e.target.value as any)}
-                className="bg-white border border-slate-200 text-[9px] font-bold p-1.5 rounded-lg flex-1 text-slate-700 focus:outline-none"
-              >
-                <option value="beginner">مبتدی</option>
-                <option value="intermediate">متوسط</option>
-                <option value="advanced">پیشرفته</option>
-              </select>
-              <button
-                onClick={handleGenerateLessonWithAi}
-                disabled={isGeneratingAiLesson || aiTopic.trim().length < 3}
-                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black rounded-lg transition disabled:opacity-50"
-              >
-                {isGeneratingAiLesson ? 'در حال تولید...' : 'تولید'}
-              </button>
-            </div>
-          </div>
 
           <nav className="space-y-1">
             <button
@@ -1545,37 +1553,43 @@ export default function TeacherPanel({
                         </button>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {/* AI Syllabus Review button */}
-                        <button
-                          onClick={async () => {
-                            setIsCourseReviewing(true);
-                            setReviewedCourseId(course.id);
-                            setCourseReviewFeedback('در حال دریافت ارزیابی هوشمند و تحلیل همتای سرفصل‌های دوره توسط Gemini...');
-                            try {
-                              const res = await fetch('/api/ai/course-review', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ course, courseLessons })
-                              });
-                              const data = await res.json();
-                              if (data.feedback) {
-                                setCourseReviewFeedback(data.feedback);
-                              } else {
-                                setCourseReviewFeedback('خطایی در پاسخ مربی هوش مصنوعی رخ داد.');
-                              }
-                            } catch (e: any) {
-                              setCourseReviewFeedback('ارتباط با سرور برقرار نشد: ' + e.message);
-                            } finally {
-                              setIsCourseReviewing(false);
-                            }
-                          }}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 text-[10px] font-black rounded-xl transition border border-amber-500/20"
-                        >
-                          <Sparkles size={11} className="animate-spin-slow" />
-                          <span>ارزیابی برنامه درسی با هوش مصنوعی</span>
-                        </button>
+                      {(() => {
+                        const courseRatings = ratings.filter(r => r.courseId === course.id);
+                        const averageStars = courseRatings.length > 0 
+                          ? parseFloat((courseRatings.reduce((acc, r) => acc + r.rating, 0) / courseRatings.length).toFixed(1))
+                          : null;
 
+                        const videoCount = courseLessons.reduce((acc, l) => {
+                          const videosListCount = l.youtubeVideos?.length || 0;
+                          const singleVideoCount = l.youtubeUrl ? 1 : 0;
+                          return acc + videosListCount + singleVideoCount;
+                        }, 0);
+
+                        const audioCount = courseLessons.reduce((acc, l) => {
+                          const audiosListCount = l.audioExplanations?.length || 0;
+                          const singleAudioCount = l.audioExplanationUrl ? 1 : 0;
+                          return acc + audiosListCount + singleAudioCount;
+                        }, 0);
+
+                        const pdfCount = courseLessons.reduce((acc, l) => {
+                          return acc + (l.pdfResources?.length || 0);
+                        }, 0);
+
+                        return (
+                          <div className="flex items-center gap-2.5 text-[10px] text-slate-500 font-semibold flex-wrap">
+                            <span className="flex items-center gap-0.5 text-amber-500 font-extrabold" title="امتیاز دوره">
+                              <Star size={11} className="fill-current" />
+                              <span>{averageStars !== null ? `${averageStars} (${courseRatings.length} رای)` : 'بدون امتیاز'}</span>
+                            </span>
+                            <span className="text-slate-200">|</span>
+                            <span title="تعداد فیلم‌های آموزشی">🎥 {videoCount} فیلم</span>
+                            <span title="تعداد فایل‌های صوتی">🎙️ {audioCount} صوت</span>
+                            {pdfCount > 0 && <span title="تعداد جزوات PDF">📄 {pdfCount} جزوه</span>}
+                          </div>
+                        );
+                      })()}
+
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
                             setActiveTab('lessons');
@@ -1804,21 +1818,22 @@ export default function TeacherPanel({
                       {lesson.content.replace(/[#*`]/g, '')}
                     </p>
 
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-                      <div className="flex items-center gap-3">
-                        <span>📝 {lesson.questions?.length || 0} چالش</span>
-                        <span>🖼️ {lesson.lessonImages?.length || 0} تصویر کتابی</span>
-                      </div>
-                      
-                      <button
-                        onClick={() => handleRequestPeerReview(lesson)}
-                        disabled={isPeerReviewing && peerReviewLessonId === lesson.id}
-                        className="flex items-center gap-1 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 text-indigo-700 font-extrabold rounded-lg text-[9px] transition"
-                      >
-                        <Sparkles size={10} />
-                        <span>{isPeerReviewing && peerReviewLessonId === lesson.id ? 'درحال داوری...' : 'داوری همتای هوش مصنوعی'}</span>
-                      </button>
-                    </div>
+                     {(() => {
+                      const videoCountLesson = (lesson.youtubeVideos?.length || 0) + (lesson.youtubeUrl ? 1 : 0);
+                      const audioCountLesson = (lesson.audioExplanations?.length || 0) + (lesson.audioExplanationUrl ? 1 : 0);
+                      const pdfCountLesson = lesson.pdfResources?.length || 0;
+
+                      return (
+                        <div className="mt-4 pt-3 border-t border-slate-100">
+                          <div className="flex items-center gap-3 text-[10px] text-slate-500 font-semibold flex-wrap">
+                            <span title="تعداد چالش‌ها و تمرین‌های این درس">📝 {lesson.questions?.length || 0} چالش</span>
+                            {videoCountLesson > 0 && <span title="تعداد فیلم‌های آموزشی این درس">🎥 {videoCountLesson} فیلم آموزشی</span>}
+                            {audioCountLesson > 0 && <span title="تعداد فایل‌های صوتی توضیحی این درس">🎙️ {audioCountLesson} فایل صوتی</span>}
+                            {pdfCountLesson > 0 && <span title="تعداد جزوات PDF این درس">📄 {pdfCountLesson} جزوه PDF</span>}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
@@ -3449,31 +3464,60 @@ export default function TeacherPanel({
 
               {lessonModalTab === 'challenges' && (
                 <div className="bg-orange-50/40 border border-orange-200/40 rounded-3xl p-5 space-y-4">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-orange-100 pb-3">
                     <div>
                       <h4 className="text-xs font-black text-orange-950">تعریف چالش‌ها و روش‌های پاسخگویی هنرجویان</h4>
-                      <p className="text-[9px] text-orange-900/80 font-semibold">چالش، سوال یا مأموریت تعریف کرده و شرایط پاسخ را تعیین کنید (دست‌نویس، کدهای فرانت‌اند، ضبط صوت یا آدرس سایت).</p>
+                      <p className="text-[9px] text-orange-900/80 font-semibold">چالش، سوال یا مأموریت تعریف کرده و شرایط پاسخ را تعیین کنید.</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newQ: Question = {
-                          id: 'q_added_' + Date.now(),
-                          title: 'چالش جدید',
-                          description: 'دستورالعمل حل چالش جدید...',
-                          answerType: 'text',
-                          points: 20
-                        };
-                        setEditingLesson({
-                          ...editingLesson,
-                          questions: [...editingLesson.questions, newQ]
-                        });
-                      }}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-[10px] font-black transition shadow"
-                    >
-                      <Plus size={12} />
-                      <span>افزودن چالش</span>
-                    </button>
+                    
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* AI Challenge Generator Control Panel */}
+                      <div className="flex items-center gap-1.5 bg-indigo-50/80 border border-indigo-100/50 px-2 py-1 rounded-xl">
+                        <span className="text-[9px] font-bold text-indigo-700">طراحی هوشمند:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={aiChallengeCount}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(10, parseInt(e.target.value) || 1));
+                            setAiChallengeCount(val);
+                          }}
+                          className="w-10 text-center bg-white border border-indigo-200 text-[10px] font-black py-0.5 rounded-lg focus:outline-none text-indigo-900"
+                        />
+                        <span className="text-[9px] text-slate-500 font-bold">چالش</span>
+                        <button
+                          type="button"
+                          onClick={handleGenerateChallengesWithAi}
+                          disabled={isGeneratingAiChallenges}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-[9px] font-black transition shadow-sm"
+                        >
+                          <Sparkles size={10} className={isGeneratingAiChallenges ? "animate-spin" : ""} />
+                          <span>{isGeneratingAiChallenges ? 'در حال طراحی...' : 'طراحی با هوش مصنوعی'}</span>
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newQ: Question = {
+                            id: 'q_added_' + Date.now(),
+                            title: 'چالش جدید',
+                            description: 'دستورالعمل حل چالش جدید...',
+                            answerType: 'text',
+                            points: 20
+                          };
+                          setEditingLesson({
+                            ...editingLesson,
+                            questions: [...editingLesson.questions, newQ]
+                          });
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-[10px] font-black transition shadow"
+                      >
+                        <Plus size={12} />
+                        <span>افزودن چالش</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-3">

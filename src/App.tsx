@@ -765,6 +765,7 @@ export default function App() {
           onLogout={handleLogout}
           isLoadingDb={isLoadingDb || isSyncing}
           isDbLoaded={isDbLoaded}
+          ratings={ratings}
         />
         <PWAUpdateToast />
       </>
