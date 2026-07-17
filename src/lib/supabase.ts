@@ -855,7 +855,7 @@ export async function dbFetchCourses(role: string, userId: string): Promise<Cour
     }
     const { data, error } = await query;
     if (error) throw error;
-    return (data || []).map((c: any) => ({
+    const mapped = (data || []).map((c: any) => ({
       id: c.id,
       title: c.title,
       description: c.description,
@@ -864,6 +864,7 @@ export async function dbFetchCourses(role: string, userId: string): Promise<Cour
       teacherId: c.teacher_id,
       createdAt: c.created_at
     }));
+    return mapped.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   } catch (err) {
     console.warn('Failed to fetch courses from database', err);
   }

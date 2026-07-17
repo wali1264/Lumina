@@ -83,11 +83,30 @@ export default function StudentPanel({
   const studentLevel = currentUser.level || 'beginner';
 
   // States
+  const [dailyLimitError, setDailyLimitError] = useState<string>('');
+
   const [activeCourseId, setActiveCourseId] = useState<string | null>(() => {
-    // Default to the first course student is accepted to
-    const myAccepted = enrollments.filter(e => e.studentId === currentUser.id && e.status === 'accepted');
+    // Default to the first course student is accepted to matching studentLevel
+    const myAccepted = enrollments.filter(e => {
+      if (e.studentId !== currentUser.id || e.status !== 'accepted') return false;
+      const course = courses.find(c => c.id === e.courseId);
+      return course?.level === studentLevel;
+    });
     return myAccepted[0]?.courseId || null;
   });
+
+  // Keep active course level synchronized with studentLevel
+  useEffect(() => {
+    const myAccepted = enrollments.filter(e => {
+      if (e.studentId !== currentUser.id || e.status !== 'accepted') return false;
+      const course = courses.find(c => c.id === e.courseId);
+      return course?.level === studentLevel;
+    });
+    const currentActiveCourse = courses.find(c => c.id === activeCourseId);
+    if (!currentActiveCourse || currentActiveCourse.level !== studentLevel) {
+      setActiveCourseId(myAccepted[0]?.courseId || null);
+    }
+  }, [studentLevel, enrollments, courses, currentUser.id, activeCourseId]);
 
   const myLevelLessons = (activeCourseId 
     ? lessons.filter(l => l.courseId === activeCourseId)
@@ -95,6 +114,21 @@ export default function StudentPanel({
   ).sort((a, b) => (a.order || 0) - (b.order || 0));
 
   const [selectedLessonId, setSelectedLessonId] = useState<string>(myLevelLessons[0]?.id || 'l1');
+
+  // Keep selected lesson within the active course when activeCourseId changes
+  useEffect(() => {
+    if (activeCourseId) {
+      const courseLessons = lessons
+        .filter(l => l.courseId === activeCourseId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+      if (courseLessons.length > 0) {
+        const isCurrentInCourse = courseLessons.some(l => l.id === selectedLessonId);
+        if (!isCurrentInCourse) {
+          setSelectedLessonId(courseLessons[0].id);
+        }
+      }
+    }
+  }, [activeCourseId, lessons, selectedLessonId]);
   const [studentTab, setStudentTab] = useState<'lessons' | 'chat'>('lessons');
   const [activeLessonTab, setActiveLessonTab] = useState<'textbook' | 'challenges' | 'teacher_chat'>('textbook');
   const [showDashboard, setShowDashboard] = useState(true);
@@ -568,6 +602,7 @@ export default function StudentPanel({
       initialAnswersLoadedRef.current = initial;
       if (isLessonChanged) {
         setSubmissionSuccessMessage('');
+        setDailyLimitError('');
         lastLessonIdRef.current = activeLesson.id;
       }
     }
@@ -596,6 +631,25 @@ export default function StudentPanel({
   const handleStudentSubmit = async (lesson: Lesson) => {
     setIsSubmittingAnswers(true);
     setSubmissionSuccessMessage('');
+    setDailyLimitError('');
+
+    // Check daily limit: max 2 unique lessons submitted per calendar day
+    const todayStr = new Date().toLocaleDateString('en-US');
+    const todaySubs = studentSubmissions.filter(s => {
+      try {
+        return new Date(s.submittedAt).toLocaleDateString('en-US') === todayStr;
+      } catch {
+        return false;
+      }
+    });
+    const uniqueLessonsSubmittedToday = new Set(todaySubs.map(s => s.lessonId));
+    const hasAlreadySubmittedThisLessToday = uniqueLessonsSubmittedToday.has(lesson.id);
+
+    if (uniqueLessonsSubmittedToday.size >= 2 && !hasAlreadySubmittedThisLessToday) {
+      setDailyLimitError('شما امروز چالش‌های ۲ درس را حل و ارسال کرده‌اید. طبق قوانین آکادمی، شما مجاز به ارسال حداکثر ۲ درس در هر روز هستید. لطفا برای ارسال چالش‌های این درس تا فردا صبر کنید.');
+      setIsSubmittingAnswers(false);
+      return;
+    }
 
     // Check if empty
     const answeredKeys = Object.keys(studentAnswers).filter(k => studentAnswers[k].trim());
@@ -781,21 +835,21 @@ export default function StudentPanel({
               const isLessonTryAgain = isLessonTeacherTryAgain;
               const isLessonPending = lessonSub?.status === 'pending';
 
-              const lastCompletedIdxInSidebar = myLevelLessons.reduce((acc, itemL, i) => {
-                return isLessonIdCompleted(itemL.id) ? i : acc;
-              }, -1);
-              const isSidebarLessonUnlocked = idx === 0 || idx === 1 || (idx > 1 && idx <= lastCompletedIdxInSidebar + 2);
+              const isSidebarLessonUnlocked = idx === 0 || myLevelLessons.slice(0, idx).every(prevL => isLessonIdCompleted(prevL.id));
 
               return (
                 <button
                   key={l.id}
                   onClick={() => {
+                    if (!isSidebarLessonUnlocked) return;
                     setSelectedLessonId(l.id);
                     setShowDashboard(false);
                     setStudentTab('lessons');
                   }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors text-right ${
-                    !showDashboard && studentTab === 'lessons' && selectedLessonId === l.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+                    !isSidebarLessonUnlocked 
+                      ? 'opacity-65 cursor-not-allowed text-slate-400' 
+                      : !showDashboard && studentTab === 'lessons' && selectedLessonId === l.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
                   }`}
                 >
                   <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold shrink-0 ${
@@ -1045,7 +1099,11 @@ export default function StudentPanel({
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
                 <span className="text-[10px] text-slate-400 font-extrabold block">دوره‌های ثبت‌نام شده</span>
                 <span className="text-2xl font-mono font-black text-slate-900 block mt-1">
-                  {enrollments.filter(e => e.studentId === currentUser.id).length} دوره
+                  {enrollments.filter(e => {
+                    if (e.studentId !== currentUser.id) return false;
+                    const course = courses.find(c => c.id === e.courseId);
+                    return course?.level === studentLevel;
+                  }).length} دوره
                 </span>
               </div>
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
@@ -1069,7 +1127,11 @@ export default function StudentPanel({
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {(() => {
-                  const myEnrollments = enrollments.filter(e => e.studentId === currentUser.id);
+                  const myEnrollments = enrollments.filter(e => {
+                    if (e.studentId !== currentUser.id) return false;
+                    const course = courses.find(c => c.id === e.courseId);
+                    return course?.level === studentLevel;
+                  });
                   return myEnrollments.map((enroll) => {
                     const course = courses.find(c => c.id === enroll.courseId);
                     if (!course) return null;
@@ -1161,7 +1223,11 @@ export default function StudentPanel({
                   });
                 })()}
 
-                {enrollments.filter(e => e.studentId === currentUser.id).length === 0 && (
+                {enrollments.filter(e => {
+                  if (e.studentId !== currentUser.id) return false;
+                  const course = courses.find(c => c.id === e.courseId);
+                  return course?.level === studentLevel;
+                }).length === 0 && (
                   <div className="md:col-span-2 p-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                     <p className="text-xs text-slate-400 font-semibold">شما هنوز در هیچ دوره‌ای ثبت‌نام نکرده‌اید. از بخش بانک دوره‌ها اقدام کنید!</p>
                   </div>
@@ -1679,10 +1745,7 @@ export default function StudentPanel({
                 }, -1);
 
                 // Check if the exercise is unlocked
-                const isExerciseUnlocked = activeLessonIndex === 0 || activeLessonIndex === 1 || (
-                  activeLessonIndex > 1 && 
-                  activeLessonIndex <= lastCompletedIndex + 2
-                );
+                const isExerciseUnlocked = activeLessonIndex === 0 || myLevelLessons.slice(0, activeLessonIndex).every(prevL => isLessonIdCompleted(prevL.id));
 
                 if (!isExerciseUnlocked) {
                   return (
@@ -1734,6 +1797,12 @@ export default function StudentPanel({
                     {submissionSuccessMessage && (
                       <div className="p-4 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl text-[11px] leading-relaxed font-bold">
                         {submissionSuccessMessage}
+                      </div>
+                    )}
+
+                    {dailyLimitError && (
+                      <div className="p-4 bg-amber-50 text-amber-800 border border-amber-200 rounded-2xl text-[11px] leading-relaxed font-bold">
+                        ⚠️ {dailyLimitError}
                       </div>
                     )}
 
@@ -1896,31 +1965,61 @@ export default function StudentPanel({
 
                     {/* Submission triggers */}
                     <div className="pt-4 pb-8">
-                      {isCompleted ? (
-                        <button
-                          disabled
-                          className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black transition cursor-not-allowed shadow flex items-center justify-center gap-1.5"
-                        >
-                          <CheckCircle2 size={16} />
-                          <span>✓ چالش‌های این درس با موفقیت تایید و ثبت نهایی شده است</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleStudentSubmit(activeLesson)}
-                          disabled={isSubmittingAnswers}
-                          className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black transition shadow disabled:opacity-50"
-                        >
-                          {isSubmittingAnswers 
-                            ? 'در حال ارسال پاسخ‌ها...' 
-                            : isPending
-                              ? 'به‌روزرسانی و ارسال مجدد پاسخ‌ها (ویرایش پاسخ قبلی)'
-                              : isTeacherTryAgain 
-                                ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
-                                : lastSub?.assistantTryAgain
-                                  ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
-                                  : 'ارسال تمامی پاسخ‌ها به مدرس'}
-                        </button>
-                      )}
+                      {(() => {
+                        const todayStr = new Date().toLocaleDateString('en-US');
+                        const todaySubs = studentSubmissions.filter(s => {
+                          try {
+                            return new Date(s.submittedAt).toLocaleDateString('en-US') === todayStr;
+                          } catch {
+                            return false;
+                          }
+                        });
+                        const uniqueLessonsSubmittedToday = new Set(todaySubs.map(s => s.lessonId));
+                        const hasAlreadySubmittedThisLessToday = uniqueLessonsSubmittedToday.has(activeLesson.id);
+                        const isDailyLimitReached = uniqueLessonsSubmittedToday.size >= 2 && !hasAlreadySubmittedThisLessToday;
+
+                        return (
+                          <>
+                            {isDailyLimitReached && (
+                              <div className="mb-4 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl text-[10px] font-bold leading-relaxed flex items-start gap-2">
+                                <span className="text-sm shrink-0">⏳</span>
+                                <span>شما امروز دو تا چالش را حل کردی و چالش‌های درس سوم را نمی‌توانی حل کنی، باید صبر کنی فردا حلش کنی</span>
+                              </div>
+                            )}
+                            {isCompleted ? (
+                              <button
+                                disabled
+                                className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black transition cursor-not-allowed shadow flex items-center justify-center gap-1.5"
+                              >
+                                <CheckCircle2 size={16} />
+                                <span>✓ چالش‌های این درس با موفقیت تایید و ثبت نهایی شده است</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  if (isDailyLimitReached) {
+                                    setDailyLimitError('شما امروز دو تا چالش را حل کردی و چالش‌های درس سوم را نمی‌توانی حل کنی، باید صبر کنی فردا حلش کنی');
+                                    return;
+                                  }
+                                  handleStudentSubmit(activeLesson);
+                                }}
+                                disabled={isSubmittingAnswers || isDailyLimitReached}
+                                className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {isSubmittingAnswers 
+                                  ? 'در حال ارسال پاسخ‌ها...' 
+                                  : isPending
+                                    ? 'به‌روزرسانی و ارسال مجدد پاسخ‌ها (ویرایش پاسخ قبلی)'
+                                    : isTeacherTryAgain 
+                                      ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
+                                      : lastSub?.assistantTryAgain
+                                        ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
+                                        : 'ارسال تمامی پاسخ‌ها به مدرس'}
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
