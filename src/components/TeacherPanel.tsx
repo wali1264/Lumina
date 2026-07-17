@@ -1841,14 +1841,28 @@ export default function TeacherPanel({
                           )}
                           {sub.attemptsCount !== undefined && sub.attemptsCount > 1 && (
                             <span className="text-[8px] bg-rose-50 border border-rose-200 text-rose-700 px-1.5 py-0.5 rounded-full font-black flex items-center gap-0.5">
-                              🔁 تلاش مجدد ({sub.attemptsCount})
+                              🔁 تلاش مجدد ({sub.attemptsCount - 1})
                             </span>
                           )}
-                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                            sub.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                          }`}>
-                            {sub.status === 'pending' ? 'بررسی نشده' : 'نمره ثبت شده'}
-                          </span>
+                          {sub.status === 'pending' ? (
+                            sub.attemptsCount !== undefined && sub.attemptsCount > 1 ? (
+                              <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800">
+                                📝 پاسخ اصلاح‌شده ارسال شد (در انتظار بررسی)
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                بررسی نشده
+                              </span>
+                            )
+                          ) : sub.isTryAgainRequested ? (
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              ✍️ بازخورد ارسال شد (منتظر اصلاح)
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                              ✅ نمره {sub.grade} ثبت شد
+                            </span>
+                          )}
                         </div>
                       </div>
                       <span className="text-[10px] text-slate-500 leading-none line-clamp-1">درس: {lesson?.title}</span>

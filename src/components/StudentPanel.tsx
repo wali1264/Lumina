@@ -606,8 +606,10 @@ export default function StudentPanel({
       }
     }
 
-    // Increment attempt counts for this lesson
-    const currentLessonAttempts = (attemptsCount[lesson.id] || 0) + 1;
+    // Increment attempt counts for this lesson based on existing submissions to survive refreshes
+    const existingSub = studentSubmissions.find(s => s.lessonId === lesson.id);
+    const prevAttempts = existingSub ? (existingSub.attemptsCount || 1) : 0;
+    const currentLessonAttempts = prevAttempts + 1;
     setAttemptsCount(prev => ({ ...prev, [lesson.id]: currentLessonAttempts }));
 
     // Formulate submission
