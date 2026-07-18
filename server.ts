@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
@@ -1288,6 +1289,183 @@ ${selectedText}
       console.error("Vardak Mentor error:", error);
       res.status(500).json({ error: error.message || "خطا در ارتباط با مربی سقراطی هوش مصنوعی" });
     }
+  });
+
+  // 9. AI Socratic Mentor Direct Chat
+  app.post("/api/ai/vardak-chat", async (req, res) => {
+    try {
+      const { message, history, lessonTitle, lessonContent, studentLevel } = req.body;
+      const level = studentLevel || "beginner";
+
+      if (!message || message.trim() === "") {
+        return res.status(400).json({ error: "متن پیام الزامی است." });
+      }
+
+      const activeKey = getEffectiveGeminiKey();
+      if (!activeKey) {
+        console.warn("GEMINI_API_KEY is missing or invalid. Using simulated Socratic chat response.");
+        return res.json({
+          emotion: "🦆",
+          reply: `سلام دوست پرتلاشم! من مربی سقراطی تو، وردک هستم. در مورد "${message.substring(0, 40)}" پرسیدی. بیا با یک سوال شروع کنیم: به نظرت هدف اصلی این موضوع در زندگی روزمره ما چیست و چطور می‌توانیم آن را ساده‌سازی کنیم؟`
+        });
+      }
+
+      // Convert history to string format for context
+      const historyContext = (history || []).map((h: any) => `${h.sender === "user" ? "دانشجو" : "وردک"}: ${h.text}`).join("\n");
+
+      const prompt = `
+تو "وردک" (Vardak) مربی هوشمند و سقراطی آکادمی لومینا (Lumina Smart Academy) هستی.
+وظیفه تو این است که به عنوان یک مربی با تجربه و دلسوز، به دانشجویی که در درک مفاهیم درسی دچار ابهام شده کمک کنی. این بار دانشجو به صورت مستقیم با تو چت می‌کند.
+
+مشخصات مکالمه جاری دانشجو:
+- عنوان درس جاری: "${lessonTitle}"
+- کل متن درس‌نامه جهت داشتن زمینه و Context آموزشی:
+"""
+${lessonContent}
+"""
+- سابقه چت‌های قبلی در این جلسه:
+"""
+${historyContext}
+"""
+- آخرین پیام دانشجو:
+"""
+${message}
+"""
+- سطح دانشجو: ${level === "beginner" ? "مبتدی" : level === "intermediate" ? "متوسط" : "پیشرفته"}
+
+قوانین آموزشی "وردک":
+1. روش سقراطی (Socratic Method): هرگز پاسخ نهایی را مستقیماً لو نده! با پرسش‌های تدریجی، ارائه مثال‌های ملموس زندگی روزمره، و دادن سرنخ‌های گام‌به‌گام (progressive hints) ذهن او را به چالش بکش تا خودش به جواب برسد.
+2. لحن بسیار صمیمی، دلسوز و دوستانه: از ایموجی‌های دوست‌داشتنی و لحنی باحوصله استفاده کن. کلمات را کاملاً فارسی سلیس و محاوره‌ای/نیمه‌محاوره‌ای بنویس.
+3. دوری از مقدمه‌چینی‌های کلیشه‌ای طولانی: در هر پاسخ مستقیماً روی پیام کاربر تمرکز کن و او را به فکر وا بدار.
+4. اعداد انگلیسی: تمام مقادیر عددی داخل متن و نمرات باید با اعداد انگلیسی (مثل 1, 2, 5, 100) نوشته شوند، نه با اعداد فارسی.
+5. خروجی باید کاملاً با فرمت JSON توصیف شده در زیر مطابقت داشته باشد.
+
+فرمت خروجی را به عنوان یک شیء با ویژگی‌های زیر ارسال کن:
+{
+  "emotion": "یک ایموجی نشان‌دهنده حس وردک در این لحظه (مثلاً 🤔, 💡, 🎓, 🚀, 🦆)",
+  "reply": "پاسخ هدایت‌گر، صمیمی، انگیزه‌بخش و سقراطی مربی به زبان فارسی با فرمت استاندارد Markdown برای جلوه بهتر"
+}
+`;
+
+      const responseText = await executeWithGeminiPool(async (client, keyName) => {
+        console.log(`[Gemini API] Running Vardak Chat with key: ${keyName}`);
+        const response = await client.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                emotion: {
+                  type: Type.STRING,
+                  description: "یک ایموجی نشان‌دهنده حس وردک در این لحظه"
+                },
+                reply: {
+                  type: Type.STRING,
+                  description: "پاسخ سقراطی با فرمت مارک‌داون"
+                }
+              },
+              required: ["emotion", "reply"]
+            }
+          }
+        });
+        return response.text || "{}";
+      });
+
+      const data = JSON.parse(responseText.trim());
+      res.json(data);
+    } catch (error: any) {
+      console.error("Vardak Socratic Chat error:", error);
+      res.status(500).json({ error: error.message || "خطا در ارتباط با مربی سقراطی هوش مصنوعی" });
+    }
+  });
+
+  // --- Outbound Email dispatch and auditing logs endpoint ---
+  const emailLogs: Array<{
+    id: string;
+    to: string;
+    subject: string;
+    html: string;
+    timestamp: string;
+    status: "success" | "simulated" | "failed";
+    error?: string;
+  }> = [];
+
+  app.post("/api/email/send", async (req, res) => {
+    const { to, subject, html } = req.body;
+    if (!to || !subject || !html) {
+      return res.status(400).json({ error: "فیلدهای گیرنده، موضوع و محتوای ایمیل الزامی هستند." });
+    }
+
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpPort = process.env.SMTP_PORT;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+    const smtpFrom = process.env.SMTP_FROM || "no-reply@aiacademy.ir";
+
+    const emailId = "msg_" + Math.random().toString(36).substring(2, 11);
+    const logItem: {
+      id: string;
+      to: string;
+      subject: string;
+      html: string;
+      timestamp: string;
+      status: "success" | "simulated" | "failed";
+      error?: string;
+    } = {
+      id: emailId,
+      to,
+      subject,
+      html,
+      timestamp: new Date().toISOString(),
+      status: "simulated",
+    };
+
+    if (smtpHost && smtpUser && smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: Number(smtpPort) || 587,
+          secure: smtpPort === "465",
+          auth: {
+            user: smtpUser,
+            pass: smtpPass,
+          },
+        });
+
+        await transporter.sendMail({
+          from: smtpFrom,
+          to,
+          subject,
+          html,
+        });
+
+        logItem.status = "success";
+        emailLogs.push(logItem);
+        console.log(`[SMTP Mail] Real email sent successfully to ${to} (Subject: ${subject})`);
+        return res.json({ success: true, status: "sent", id: emailId });
+      } catch (err: any) {
+        console.error("[SMTP Mail] Failed to send real email via SMTP:", err);
+        logItem.status = "failed";
+        logItem.error = err.message || String(err);
+        emailLogs.push(logItem);
+        return res.json({ 
+          success: true, 
+          status: "simulated_fallback", 
+          id: emailId, 
+          warning: `SMTP error: ${err.message}. Simulating successful dispatch for development.` 
+        });
+      }
+    } else {
+      emailLogs.push(logItem);
+      console.log(`[SMTP Mail] Simulated email logged to ${to} (Subject: ${subject})`);
+      return res.json({ success: true, status: "simulated", id: emailId });
+    }
+  });
+
+  app.get("/api/email/logs", (req, res) => {
+    res.json({ logs: emailLogs });
   });
 
   // --- Vite & Production Static File Serving Middleware ---

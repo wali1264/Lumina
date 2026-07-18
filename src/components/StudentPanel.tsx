@@ -4,7 +4,8 @@ import {
   BookOpen, Sparkles, Send, Volume2, Mic, AlertTriangle, CheckCircle2, Award,
   Clock, Check, X, ShieldAlert, BookMarked, Eye, LayoutGrid, Image as ImageIcon,
   Flame, HelpCircle, FileText, Code, ArrowLeft, ChevronLeft, ChevronRight, Bell,
-  VolumeX, Youtube, Tv, Download, GraduationCap, CheckSquare, Paperclip, File, Trash2, Star
+  VolumeX, Youtube, Tv, Download, GraduationCap, CheckSquare, Paperclip, File, Trash2, Star,
+  RotateCw, MessageSquare, ZoomIn, ZoomOut, Maximize2, Minimize2
 } from 'lucide-react';
 import { User as UserType, Lesson, Submission, Question, ChatMessage, AnswerType, Course, CourseEnrollment, LessonImage, DirectMessage, Rating } from '../types';
 import DrawingCanvas from './DrawingCanvas';
@@ -138,6 +139,8 @@ export default function StudentPanel({
   const [activeLessonTab, setActiveLessonTab] = useState<'textbook' | 'challenges' | 'teacher_chat'>('textbook');
   const [showDashboard, setShowDashboard] = useState(true);
   const [showTeacherText, setShowTeacherText] = useState(false);
+  const [isTextbookFullscreen, setIsTextbookFullscreen] = useState(false);
+  const [textbookZoomLevel, setTextbookZoomLevel] = useState(100);
 
   // Star Rating system states
   const [ratingModalCourse, setRatingModalCourse] = useState<Course | null>(null);
@@ -166,63 +169,257 @@ export default function StudentPanel({
   const [isAudioListModalOpen, setIsAudioListModalOpen] = useState(false);
 
   // --- Socratic AI Mentor "Vardak" (Little Duck) States & Logic ---
-  const [vardakState, setVardakState] = useState<'idle' | 'following' | 'selecting' | 'processing' | 'answering'>('idle');
-  const [vardakPos, setVardakPos] = useState({ x: 0, y: 0 });
-  const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
-  const [selectionEnd, setSelectionEnd] = useState({ x: 0, y: 0 });
+  const [vardakState, setVardakState] = useState<'idle' | 'selecting' | 'processing' | 'answering'>('idle');
   const [capturedText, setCapturedText] = useState('');
   const [vardakResult, setVardakResult] = useState<any | null>(null);
   const [isVardakModalOpen, setIsVardakModalOpen] = useState(false);
   const [revealedHints, setRevealedHints] = useState<number[]>([]);
-  const [vardakModalPos, setVardakModalPos] = useState({ x: 100, y: 150 });
+  const [vardakModalPos, setVardakModalPos] = useState({ x: 150, y: 150 });
   const [vardakModalSize, setVardakModalSize] = useState({ w: 430, h: 540 });
   const [isVardakError, setIsVardakError] = useState('');
   
+  // Custom Socratic Direct Chat States
+  const [isVardakDropdownOpen, setIsVardakDropdownOpen] = useState(false);
+  const [isVardakChatOpen, setIsVardakChatOpen] = useState(false);
+  const [isChatFullscreen, setIsChatFullscreen] = useState(false);
+  const [vardakChatMessages, setVardakChatMessages] = useState<{
+    sender: 'user' | 'vardak';
+    text: string;
+    emotion?: string;
+    image?: string;
+    audioUrl?: string;
+    pdf?: { name: string; size: string; url: string };
+  }[]>([
+    { sender: 'vardak', text: 'سلام دوست خوبم! من مربی راهنمای تو هستم. هر کجای درس رو متوجه نشدی یا سوالی داری بگو تا با هم گام‌به‌گام بررسی کنیم و یادش بگیریم! 😊', emotion: '💡' }
+  ]);
+  const [vardakChatInput, setVardakChatInput] = useState('');
+  const [isVardakChatLoading, setIsVardakChatLoading] = useState(false);
+  
+  // WhatsApp-like attachment states
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<{
+    type: 'image' | 'audio' | 'pdf';
+    file: File;
+    previewUrl: string;
+  } | null>(null);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string>('');
+
+  // Text selection tracking
+  const [selectedText, setSelectedText] = useState('');
+  const [selectedTextRect, setSelectedTextRect] = useState<{ x: number; y: number } | null>(null);
+
   const [isVardakModalDragging, setIsVardakModalDragging] = useState(false);
   const [isVardakModalResizing, setIsVardakModalResizing] = useState(false);
+  const [isVardakChatDragging, setIsVardakChatDragging] = useState(false);
+  const [isGuidanceFullscreen, setIsGuidanceFullscreen] = useState(false);
+  const [guidanceZoom, setGuidanceZoom] = useState(100);
+  const [vardakChatPos, setVardakChatPos] = useState({
+    x: typeof window !== 'undefined' ? Math.max(20, window.innerWidth - 440) : 800,
+    y: 120
+  });
   
   const vardakDragStart = useRef({ x: 0, y: 0 });
+  const vardakChatDragStart = useRef({ x: 0, y: 0 });
   const vardakResizeStart = useRef({ w: 0, h: 0, x: 0, y: 0 });
+  const nestRef = useRef<HTMLDivElement | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Track mouse position in following/selecting states
-  useEffect(() => {
-    if (vardakState === 'following' || vardakState === 'selecting') {
-      const handleMouseMove = (e: MouseEvent) => {
-        setVardakPos({ x: e.clientX, y: e.clientY });
-      };
-      window.addEventListener('mousemove', handleMouseMove);
-      return () => window.removeEventListener('mousemove', handleMouseMove);
-    }
-  }, [vardakState]);
+  const flyBackToNest = () => {
+    setVardakState('idle');
+    setIsVardakModalOpen(false);
+    setSelectedText('');
+    setSelectedTextRect(null);
+  };
 
-  // Capture selection clicks on window
+  // Listen for textbook selections when Socratic Text Explainer is active (selecting mode)
   useEffect(() => {
-    const handleWindowClick = (e: MouseEvent) => {
-      if (vardakState === 'following') {
-        e.preventDefault();
-        e.stopPropagation();
-        setSelectionStart({ x: e.clientX, y: e.clientY });
-        setSelectionEnd({ x: e.clientX, y: e.clientY });
-        setVardakState('selecting');
-      } else if (vardakState === 'selecting') {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleSelection = () => {
+      if (vardakState !== 'selecting') {
+        setSelectedText('');
+        setSelectedTextRect(null);
+        return;
+      }
+      
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() || '';
+      
+      if (text.length > 3) {
+        setSelectedText(text);
         
-        const endX = e.clientX;
-        const endY = e.clientY;
-        setSelectionEnd({ x: endX, y: endY });
-        setVardakState('processing');
-        
-        const text = getSelectedTextFromPoints(selectionStart.x, selectionStart.y, endX, endY);
-        handleVardakProcess(text, selectionStart.x, selectionStart.y);
+        try {
+          const range = selection?.getRangeAt(0);
+          if (range) {
+            const rects = range.getClientRects();
+            if (rects.length > 0) {
+              const lastRect = rects[rects.length - 1];
+              // Position floating button near mouse selection end
+              setSelectedTextRect({
+                x: Math.min(window.innerWidth - 180, lastRect.right + window.scrollX - 50),
+                y: lastRect.bottom + window.scrollY + 10
+              });
+            }
+          }
+        } catch (e) {
+          setSelectedTextRect({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+        }
+      } else {
+        setSelectedText('');
+        setSelectedTextRect(null);
       }
     };
 
-    if (vardakState === 'following' || vardakState === 'selecting') {
-      window.addEventListener('click', handleWindowClick, true);
-      return () => window.removeEventListener('click', handleWindowClick, true);
+    document.addEventListener('selectionchange', handleSelection);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelection);
+    };
+  }, [vardakState]);
+
+  // Trigger file upload from attachment menu
+  const triggerAttachment = (type: 'image' | 'audio' | 'pdf') => {
+    setIsAttachmentMenuOpen(false);
+    setAttachmentError('');
+    if (fileInputRef.current) {
+      if (type === 'image') fileInputRef.current.accept = "image/*";
+      else if (type === 'audio') fileInputRef.current.accept = "audio/*";
+      else if (type === 'pdf') fileInputRef.current.accept = ".pdf";
+      fileInputRef.current.click();
     }
-  }, [vardakState, selectionStart]);
+  };
+
+  const handleFileAttached = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type.startsWith('video/')) {
+      setAttachmentError('فایل‌های ویدیویی پشتیبانی نمی‌شوند. لطفاً تصویر، فایل صوتی یا سند PDF ارسال کنید.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setAttachmentError('حجم فایل بسیار زیاد است (حداکثر 10 مگابایت).');
+      return;
+    }
+
+    let type: 'image' | 'audio' | 'pdf' = 'image';
+    if (file.type.startsWith('image/')) {
+      type = 'image';
+    } else if (file.type.startsWith('audio/')) {
+      type = 'audio';
+    } else if (file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
+      type = 'pdf';
+    } else {
+      setAttachmentError('فرمت فایل پشتیبانی نمی‌شود. لطفاً تصویر، فایل صوتی یا سند PDF انتخاب کنید.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPendingAttachment({
+        type,
+        file,
+        previewUrl: reader.result as string
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Handle direct Socratic chat API call
+  const sendVardakChatMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if ((!vardakChatInput.trim() && !pendingAttachment) || isVardakChatLoading) return;
+
+    const userMsg = vardakChatInput.trim();
+    setVardakChatInput('');
+    setAttachmentError('');
+
+    const newMsg: any = { sender: 'user', text: userMsg };
+    if (pendingAttachment) {
+      if (pendingAttachment.type === 'image') {
+        newMsg.image = pendingAttachment.previewUrl;
+      } else if (pendingAttachment.type === 'audio') {
+        newMsg.audioUrl = pendingAttachment.previewUrl;
+      } else if (pendingAttachment.type === 'pdf') {
+        newMsg.pdf = {
+          name: pendingAttachment.file.name,
+          size: `${(pendingAttachment.file.size / (1024 * 1024)).toFixed(2)} MB`,
+          url: '#'
+        };
+      }
+    }
+
+    setVardakChatMessages(prev => [...prev, newMsg]);
+    setIsVardakChatLoading(true);
+
+    const attachmentTypeToSend = pendingAttachment?.type;
+    const attachmentNameToSend = pendingAttachment?.file.name;
+    setPendingAttachment(null);
+
+    try {
+      let finalMessage = userMsg;
+      if (attachmentTypeToSend) {
+        finalMessage += `\n[توضیح پیوست: دانش‌آموز یک فایل ${attachmentTypeToSend} به نام "${attachmentNameToSend || 'فایل'}" آپلود کرده است. مربی سقراطی باید متناسب با اصول آموزشی رفتار کند]`;
+      }
+
+      const cleanHistory = vardakChatMessages.slice(-8).map(h => ({
+        sender: h.sender,
+        text: h.text + (h.image ? ' [تصویر ضمیمه]' : '') + (h.audioUrl ? ' [فایل صوتی ضمیمه]' : '') + (h.pdf ? ' [فایل PDF ضمیمه]' : '')
+      }));
+
+      const response = await fetch('/api/ai/vardak-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: finalMessage,
+          history: cleanHistory,
+          lessonTitle: activeLesson?.title || '',
+          lessonContent: (showTeacherText ? activeLesson?.teacherText : activeLesson?.content) || '',
+          studentLevel: currentUser?.level || 'beginner'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('خطا در ارتباط با سرور مربی.');
+      }
+
+      const data = await response.json();
+      const mentorMsg: any = { sender: 'vardak', text: data.reply, emotion: data.emotion || '💡' };
+
+      const userMsgLower = userMsg.toLowerCase();
+      if (userMsgLower.includes('جزوه') || userMsgLower.includes('pdf') || userMsgLower.includes('فایل')) {
+        mentorMsg.pdf = {
+          name: 'تکنیک‌های عملی توازن و کنتراست بصری در طراحی - مربی راهنما.pdf',
+          size: '1.2 MB',
+          url: '#'
+        };
+      } else if (userMsgLower.includes('صدا') || userMsgLower.includes('پادکست') || userMsgLower.includes('توضیح صوتی')) {
+        mentorMsg.audioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+      } else if (userMsgLower.includes('عکس') || userMsgLower.includes('نمونه') || userMsgLower.includes('طرح')) {
+        mentorMsg.image = 'https://images.unsplash.com/photo-1541462608141-27b2c74530a3?auto=format&fit=crop&w=600&q=80';
+      }
+
+      setVardakChatMessages(prev => [...prev, mentorMsg]);
+    } catch (err) {
+      console.error("Vardak chat error:", err);
+      setVardakChatMessages(prev => [...prev, {
+        sender: 'vardak',
+        text: 'دوست خوبم، ارتباط من با کائنات لومینا کمی کند شده. می‌تونی سوالت رو یک بار دیگه تکرار کنی؟ 😊',
+        emotion: '💡'
+      }]);
+    } finally {
+      setIsVardakChatLoading(false);
+    }
+  };
+
+  // Scroll chat window to bottom
+  useEffect(() => {
+    if (isVardakChatOpen) {
+      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [vardakChatMessages, isVardakChatOpen]);
 
   // Dragging & Resizing modal handlers
   useEffect(() => {
@@ -231,6 +428,12 @@ export default function StudentPanel({
         setVardakModalPos({
           x: e.clientX - vardakDragStart.current.x,
           y: e.clientY - vardakDragStart.current.y
+        });
+      }
+      if (isVardakChatDragging) {
+        setVardakChatPos({
+          x: e.clientX - vardakChatDragStart.current.x,
+          y: e.clientY - vardakChatDragStart.current.y
         });
       }
       if (isVardakModalResizing) {
@@ -245,10 +448,11 @@ export default function StudentPanel({
 
     const handleMouseUp = () => {
       setIsVardakModalDragging(false);
+      setIsVardakChatDragging(false);
       setIsVardakModalResizing(false);
     };
 
-    if (isVardakModalDragging || isVardakModalResizing) {
+    if (isVardakModalDragging || isVardakChatDragging || isVardakModalResizing) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
       return () => {
@@ -256,72 +460,11 @@ export default function StudentPanel({
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isVardakModalDragging, isVardakModalResizing]);
+  }, [isVardakModalDragging, isVardakChatDragging, isVardakModalResizing]);
 
-  // Socratic text extraction
-  const getSelectedTextFromPoints = (x1: number, y1: number, x2: number, y2: number): string => {
-    const normalSel = window.getSelection()?.toString().trim();
-    if (normalSel && normalSel.length > 0) {
-      return normalSel;
-    }
-
-    if (document.caretRangeFromPoint) {
-      try {
-        const startRange = document.caretRangeFromPoint(x1, y1);
-        const endRange = document.caretRangeFromPoint(x2, y2);
-        if (startRange && endRange) {
-          const range = document.createRange();
-          const startNode = startRange.startContainer;
-          const startOffset = startRange.startOffset;
-          const endNode = endRange.startContainer;
-          const endOffset = endRange.startOffset;
-
-          const compare = startNode.compareDocumentPosition(endNode);
-          if (compare & Node.DOCUMENT_POSITION_PRECEDING) {
-            range.setStart(endNode, endOffset);
-            range.setEnd(startNode, startOffset);
-          } else {
-            range.setStart(startNode, startOffset);
-            range.setEnd(endNode, endOffset);
-          }
-
-          const text = range.toString().trim();
-          if (text.length > 0) {
-            const sel = window.getSelection();
-            if (sel) {
-              sel.removeAllRanges();
-              sel.addRange(range);
-            }
-            return text;
-          }
-        }
-      } catch (err) {
-        console.error("Caret selection error:", err);
-      }
-    }
-
-    try {
-      const el = document.elementFromPoint(x1, y1);
-      if (el) {
-        const tagName = el.tagName.toLowerCase();
-        if (['p', 'span', 'h1', 'h2', 'h3', 'h4', 'li', 'code', 'pre', 'article'].includes(tagName)) {
-          return el.textContent?.trim() || "";
-        }
-        const parentP = el.closest('p, li, pre, article');
-        if (parentP) {
-          return parentP.textContent?.trim() || "";
-        }
-      }
-    } catch (err) {
-      console.error("Element point lookup error:", err);
-    }
-
-    return "";
-  };
-
-  const handleVardakProcess = async (text: string, x: number, y: number) => {
+  const handleVardakProcess = async (text: string, x?: number, y?: number) => {
     if (!text || text.trim().length === 0) {
-      setVardakState('idle');
+      flyBackToNest();
       return;
     }
 
@@ -351,8 +494,8 @@ export default function StudentPanel({
       const data = await response.json();
       setVardakResult(data);
       
-      const modalX = Math.min(window.innerWidth - 450, Math.max(20, x - 210));
-      const modalY = Math.min(window.innerHeight - 560, Math.max(50, y - 100));
+      const modalX = x ? Math.min(window.innerWidth - 450, Math.max(20, x - 210)) : Math.max(50, window.innerWidth - 480);
+      const modalY = y ? Math.min(window.innerHeight - 560, Math.max(50, y - 100)) : 150;
       setVardakModalPos({ x: modalX, y: modalY });
       setIsVardakModalOpen(true);
       setVardakState('answering');
@@ -373,8 +516,8 @@ export default function StudentPanel({
         example: "// به این مثال ساده توجه کن:\nconst score = 100;\nif (score >= 50) {\n  console.log('موفق شدید!');\n}"
       });
       
-      const modalX = Math.min(window.innerWidth - 450, Math.max(20, x - 210));
-      const modalY = Math.min(window.innerHeight - 560, Math.max(50, y - 100));
+      const modalX = x ? Math.min(window.innerWidth - 450, Math.max(20, x - 210)) : Math.max(50, window.innerWidth - 480);
+      const modalY = y ? Math.min(window.innerHeight - 560, Math.max(50, y - 100)) : 150;
       setVardakModalPos({ x: modalX, y: modalY });
       setIsVardakModalOpen(true);
       setVardakState('answering');
@@ -382,17 +525,23 @@ export default function StudentPanel({
   };
 
   const toggleVardakState = () => {
-    if (vardakState === 'idle') {
-      setVardakState('following');
+    if (vardakState !== 'idle') {
+      flyBackToNest();
     } else {
-      setVardakState('idle');
-      setIsVardakModalOpen(false); // fallbacks to close just in case
+      setIsVardakDropdownOpen(!isVardakDropdownOpen);
     }
   };
 
   const handleModalDragStart = (e: React.MouseEvent) => {
+    if (isGuidanceFullscreen) return;
     setIsVardakModalDragging(true);
     vardakDragStart.current = { x: e.clientX - vardakModalPos.x, y: e.clientY - vardakModalPos.y };
+  };
+
+  const handleChatDragStart = (e: React.MouseEvent) => {
+    if (isChatFullscreen) return;
+    setIsVardakChatDragging(true);
+    vardakChatDragStart.current = { x: e.clientX - vardakChatPos.x, y: e.clientY - vardakChatPos.y };
   };
 
   const handleModalResizeStart = (e: React.MouseEvent) => {
@@ -1573,7 +1722,7 @@ export default function StudentPanel({
                       <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span>تاریخ ارسال: {new Date(s.submittedAt).toLocaleDateString('fa-IR')}</span>
                         <span className="text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded font-black">
-                          ✍️ ارزیاب: {s.gradedBy === 'assistant' ? '🎓 دستیار استاد' : '👨‍🏫 استاد سعید'}
+                          ✍️ ارزیاب: {s.gradedBy === 'assistant' ? '🎓 دستیار استاد' : '👨‍🏫 استاد'}
                         </span>
                       </div>
                       {s.feedback && (
@@ -1676,7 +1825,16 @@ export default function StudentPanel({
             </div>
 
             {/* Textbook Column */}
-            <div className={`flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-white ${activeLessonTab === 'textbook' ? 'block' : 'hidden'}`}>
+            <div 
+              className={`flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-white ${
+                activeLessonTab === 'textbook' ? 'block' : 'hidden'
+              } ${
+                isTextbookFullscreen 
+                  ? 'fixed inset-0 z-40 p-6 md:p-12 overflow-y-auto bg-white' 
+                  : ''
+              }`}
+              style={{ fontSize: `${textbookZoomLevel}%` }}
+            >
               
               {/* Back to dashboard & Media/Explanation Controls */}
               <div className="flex items-center justify-between flex-wrap gap-4 pb-3 border-b border-slate-100">
@@ -1685,6 +1843,9 @@ export default function StudentPanel({
                     if (isPlayingExplanation) {
                       audioExplanationRef.current?.pause();
                       setIsPlayingExplanation(false);
+                    }
+                    if (isTextbookFullscreen) {
+                      setIsTextbookFullscreen(false);
                     }
                     setShowDashboard(true);
                   }}
@@ -1695,6 +1856,93 @@ export default function StudentPanel({
                 </button>
 
                 <div className="flex items-center gap-2">
+                  {/* Zoom & Fullscreen controls */}
+                  <div className="flex items-center gap-1 border-l border-slate-200 pl-2.5 ml-1 select-none">
+                    <button
+                      onClick={() => setTextbookZoomLevel(prev => Math.max(80, prev - 10))}
+                      className="p-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition cursor-pointer flex items-center justify-center"
+                      title="کوچک‌نمایی متن"
+                    >
+                      <ZoomOut size={13} />
+                    </button>
+                    <span className="text-[10px] font-mono font-bold text-slate-600 px-1 min-w-[32px] text-center">
+                      {textbookZoomLevel}%
+                    </span>
+                    <button
+                      onClick={() => setTextbookZoomLevel(prev => Math.min(200, prev + 10))}
+                      className="p-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition cursor-pointer flex items-center justify-center"
+                      title="بزرگ‌نمایی متن"
+                    >
+                      <ZoomIn size={13} />
+                    </button>
+
+                    <button
+                      onClick={() => setIsTextbookFullscreen(!isTextbookFullscreen)}
+                      className="p-1.5 rounded-xl bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-800 transition cursor-pointer flex items-center justify-center gap-1"
+                      title={isTextbookFullscreen ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه کردن جزوه'}
+                    >
+                      {isTextbookFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                      <span className="text-[9px] font-black hidden sm:inline">
+                        {isTextbookFullscreen ? 'خروج' : 'تمام‌صفحه'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Side-by-side Socratic AI Mentor buttons */}
+                  <div className="flex items-center gap-1.5">
+                    {/* 1. Socratic Chat Button */}
+                    <button
+                      onClick={() => setIsVardakChatOpen(!isVardakChatOpen)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border transition-all shadow-sm ${
+                        isVardakChatOpen
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white hover:bg-indigo-50/40 text-slate-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                      title="گفتگوی مستقیم با مربی هوشمند سقراطی"
+                    >
+                      <MessageSquare size={13} />
+                      <span>گفتگو با مربی</span>
+                      {!isVardakChatOpen && (
+                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />
+                      )}
+                    </button>
+
+                    {/* 2. Socratic Guidance Button (previously text selector) */}
+                    <button
+                      onClick={() => {
+                        if (vardakState === 'processing') return;
+                        if (vardakState === 'selecting') {
+                          flyBackToNest();
+                        } else {
+                          setVardakState('selecting');
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border transition-all shadow-sm ${
+                        vardakState === 'selecting'
+                          ? 'bg-indigo-600 text-white border-indigo-700'
+                          : vardakState === 'processing'
+                            ? 'bg-indigo-50 text-indigo-600 border-indigo-200 cursor-wait'
+                            : vardakState === 'answering'
+                              ? 'bg-emerald-600 text-white border-emerald-700'
+                              : 'bg-white hover:bg-indigo-50/40 text-slate-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                      title="آموزش و راهنمایی مربی بر اساس بخش‌های انتخابی متن درس‌نامه"
+                    >
+                      {vardakState === 'processing' ? (
+                        <RotateCw size={13} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={13} />
+                      )}
+                      <span>
+                        {vardakState === 'selecting' 
+                          ? 'نشانه‌گذاری متن...' 
+                          : vardakState === 'answering'
+                            ? 'راهنمایی فعال'
+                            : 'آموزش و راهنمایی'}
+                      </span>
+                    </button>
+                  </div>
+
                   {/* Speaker (Audio explanations) Button */}
                   {(activeLesson.audioExplanationUrl || (activeLesson.audioExplanations && activeLesson.audioExplanations.length > 0)) ? (
                     <button
@@ -1722,12 +1970,12 @@ export default function StudentPanel({
                       onClick={() => setShowTeacherText(!showTeacherText)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black border transition-all shadow-sm ${
                         showTeacherText
-                          ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600'
-                          : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-150'
+                          ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
+                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-150'
                       }`}
                       title="نمایش متن تشریح و تدریس اختصاصی استاد"
                     >
-                      <GraduationCap size={13} className={showTeacherText ? 'text-white' : 'text-amber-600'} />
+                      <GraduationCap size={13} className={showTeacherText ? 'text-white' : 'text-indigo-600'} />
                       <span>{showTeacherText ? '📖 مشاهده متن اصلی درس' : '👨‍🏫 متن تدریس استاد'}</span>
                     </button>
                   ) : (
@@ -1761,20 +2009,6 @@ export default function StudentPanel({
                       <span>فاقد ویدیو مکمل</span>
                     </button>
                   )}
-
-                  {/* Socratic AI Mentor Vardak Button */}
-                  <button
-                    onClick={toggleVardakState}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black border transition-all shadow-md active:scale-95 ${
-                      vardakState !== 'idle'
-                        ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white border-amber-500 shadow-amber-200/50 animate-pulse'
-                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
-                    }`}
-                    title="مربی سقراطی لومینا (وردک) - رفع اشکال گام‌به‌گام"
-                  >
-                    <span className="text-xs">🦆</span>
-                    <span>{vardakState !== 'idle' ? 'توقف مربی سقراطی' : 'رفع اشکال با وردک (مربی سقراطی)'}</span>
-                  </button>
 
                   {/* PDF Resources Button */}
                   {(activeLesson.pdfResources && activeLesson.pdfResources.length > 0) ? (
@@ -1813,37 +2047,37 @@ export default function StudentPanel({
                 /* Teacher's text prose */
                 <div className="space-y-6 animate-fadeIn">
                   {/* Informational card */}
-                  <div className="bg-amber-50/75 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3 text-amber-900">
-                    <div className="p-1.5 bg-amber-100 rounded-xl text-amber-700">
+                  <div className="bg-indigo-50/75 border border-indigo-200/80 rounded-2xl p-4 flex items-start gap-3 text-indigo-950">
+                    <div className="p-1.5 bg-indigo-100 rounded-xl text-indigo-700">
                       <GraduationCap size={16} />
                     </div>
                     <div>
                       <h4 className="text-xs font-black">یادداشت تدریس و تشریح استاد</h4>
-                      <p className="text-[10px] text-amber-700 font-bold mt-0.5">در این بخش، تشریح مکتوب، نکات تستی و تفاسیر مربی برای این مبحث در اختیار شماست.</p>
+                      <p className="text-[10px] text-indigo-700 font-bold mt-0.5">در این بخش، تشریح مکتوب، نکات تستی و تفاسیر مربی برای این مبحث در اختیار شماست.</p>
                     </div>
                   </div>
 
-                  <article className="prose prose-slate max-w-none text-xs md:text-sm text-slate-800 leading-relaxed md:leading-loose space-y-4 font-medium whitespace-pre-line bg-amber-50/15 p-4 md:p-6 rounded-3xl border border-slate-100/85">
+                  <article className="prose prose-slate max-w-none text-xs md:text-sm text-slate-800 leading-relaxed md:leading-loose space-y-4 font-medium whitespace-pre-line bg-indigo-50/10 p-4 md:p-6 rounded-3xl border border-slate-100/85">
                     {activeLesson.teacherText ? (
                       activeLesson.teacherText.split('\n\n').map((block, idx) => {
                         const trimmed = block.trim();
                         if (trimmed.startsWith('# ')) {
-                          return <h1 key={idx} className="text-sm md:text-base font-black text-amber-950 border-r-4 border-amber-500 pr-2 mt-6 mb-2">{trimmed.replace('# ', '')}</h1>;
+                          return <h1 key={idx} className="text-sm md:text-base font-black text-indigo-950 border-r-4 border-indigo-500 pr-2 mt-6 mb-2">{trimmed.replace('# ', '')}</h1>;
                         }
                         if (trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
-                          return <h3 key={idx} className="text-xs md:text-sm font-extrabold text-amber-950 mt-4 mb-1.5">{trimmed.replace(/###? /g, '')}</h3>;
+                          return <h3 key={idx} className="text-xs md:text-sm font-extrabold text-indigo-950 mt-4 mb-1.5">{trimmed.replace(/###? /g, '')}</h3>;
                         }
                         if (trimmed.startsWith('```')) {
                           const lines = trimmed.split('\n');
                           const code = lines.slice(1, lines[lines.length - 1].startsWith('```') ? -1 : undefined).join('\n');
                           return (
-                            <div key={idx} className="bg-slate-950 text-slate-100 rounded-xl p-3 md:p-4 font-mono text-[11px] md:text-xs overflow-x-auto my-3 relative group" dir="ltr">
-                              <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-slate-500">کد برنامه (قالب فنی)</span>
-                              <pre className="whitespace-pre leading-relaxed">{code}</pre>
+                            <div key={idx} className="bg-indigo-50/50 text-indigo-950 rounded-2xl p-4 md:p-5 font-mono text-[11px] md:text-xs border border-indigo-150 overflow-x-auto my-4 relative group shadow-sm text-justify" dir="ltr">
+                              <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-indigo-500 font-extrabold">کد برنامه (قالب فنی)</span>
+                              <pre className="whitespace-pre-wrap leading-relaxed break-all font-medium select-text">{code}</pre>
                             </div>
                           );
                         }
-                        return <p key={idx} className="text-slate-700 leading-relaxed md:leading-loose text-xs md:text-sm">{trimmed}</p>;
+                        return <p key={idx} className="text-slate-700 leading-relaxed md:leading-loose text-xs md:text-sm text-justify">{trimmed}</p>;
                       })
                     ) : (
                       <p className="text-slate-400 font-bold text-center py-6">متن تدریسی برای این درس ثبت نشده است.</p>
@@ -1866,9 +2100,9 @@ export default function StudentPanel({
                         const lines = trimmed.split('\n');
                         const code = lines.slice(1, lines[lines.length - 1].startsWith('```') ? -1 : undefined).join('\n');
                         return (
-                          <div key={idx} className="bg-slate-950 text-slate-100 rounded-xl p-3 md:p-4 font-mono text-[11px] md:text-xs overflow-x-auto my-3 relative group" dir="ltr">
-                            <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-slate-500">HTML / CSS</span>
-                            <pre className="whitespace-pre leading-relaxed">{code}</pre>
+                          <div key={idx} className="bg-indigo-50/50 text-indigo-950 rounded-2xl p-4 md:p-5 font-mono text-[11px] md:text-xs border border-indigo-150 overflow-x-auto my-4 relative group shadow-sm text-justify" dir="ltr">
+                            <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-indigo-500 font-extrabold">HTML / CSS</span>
+                            <pre className="whitespace-pre-wrap leading-relaxed break-all font-medium select-text">{code}</pre>
                           </div>
                         );
                       }
@@ -2074,7 +2308,7 @@ export default function StudentPanel({
                         <div className="flex justify-between items-center">
                           <span className="font-black text-xs text-emerald-900 flex items-center gap-1.5">
                             <CheckCircle2 size={16} className="text-emerald-600" />
-                            <span>✓ تایید نهایی کارنامه توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'}</span>
+                            <span>✓ تایید نهایی کارنامه توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'}</span>
                           </span>
                           <span className="text-[9px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-black">
                             امتیاز نهایی: {lastSub.grade} / {lastSub.maxPoints}
@@ -2095,14 +2329,14 @@ export default function StudentPanel({
                       <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 text-rose-950">
                         <div className="flex items-center justify-between">
                           <span className="font-black text-xs text-rose-900 flex items-center gap-1">
-                            <span>🔁 درخواست تلاش مجدد (Try Again) - توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'}</span>
+                            <span>🔁 درخواست تلاش مجدد (Try Again) - توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'}</span>
                           </span>
                           <span className="text-[8px] bg-rose-200 text-rose-950 px-2 py-0.5 rounded-full font-black">
                             {lastSub.gradedBy === 'assistant' ? 'دستیار کلاس' : 'مدرس کلاس'}
                           </span>
                         </div>
                         <p className="text-[10px] font-semibold leading-relaxed">
-                          {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'} پاسخ قبلی شما را ارزیابی کرده و درخواست اصلاح یا تکمیل پاسخ‌ها را داده‌اند. نمره قبلی ثبت‌شده: {lastSub.grade} از {lastSub.maxPoints} امتیاز.
+                          {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'} پاسخ قبلی شما را ارزیابی کرده و درخواست اصلاح یا تکمیل پاسخ‌ها را داده‌اند. نمره قبلی ثبت‌شده: {lastSub.grade} از {lastSub.maxPoints} امتیاز.
                         </p>
                         {lastSub.feedback && (
                           <div className="p-2.5 bg-white rounded-xl border border-rose-150 text-[11px] text-slate-800 font-semibold leading-relaxed">
@@ -2284,7 +2518,7 @@ export default function StudentPanel({
                   const activeCourse = courses.find(c => c.id === activeLesson.courseId);
                   const courseTeacherId = activeCourse?.teacherId || 'teacher_1';
                   const teacherUser = users.find(u => u.id === courseTeacherId);
-                  const teacherName = teacherUser ? teacherUser.name : 'استاد سعید';
+                  const teacherName = teacherUser ? teacherUser.name : 'استاد';
                   const teacherRole = teacherUser?.role === 'teacher' ? 'مدرس ارشد دوره' : 'مربی کلاسی';
 
                   const myConversations = directMessages.filter(msg => 
@@ -2972,76 +3206,289 @@ export default function StudentPanel({
       {/* --- Socratic AI Mentor "Vardak" Layout Components --- */}
       {/* ========================================== */}
 
-      {/* 1. Floating Instruction Banner */}
-      {(vardakState === 'following' || vardakState === 'selecting') && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] w-[90%] max-w-xl animate-bounce">
-          <div className="bg-slate-900/95 backdrop-blur-md text-white border border-slate-800 shadow-2xl rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-500 rounded-xl animate-pulse">
-                <span className="text-base">🦆</span>
-              </div>
+      {/* 1. Socratic Direct Chat Draggable Modal */}
+      {isVardakChatOpen && (
+        <div
+          className={`fixed z-[9999] bg-white/95 backdrop-blur-xl border-2 border-indigo-400 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 select-none hover:shadow-indigo-100/50 ${
+            isChatFullscreen 
+              ? 'top-4 left-4 right-4 bottom-4 md:top-8 md:left-8 md:right-8 md:bottom-8' 
+              : ''
+          }`}
+          style={isChatFullscreen ? { direction: 'rtl' } : {
+            left: vardakChatPos.x,
+            top: vardakChatPos.y,
+            width: '400px',
+            height: '520px',
+            direction: 'rtl'
+          }}
+        >
+          {/* Header */}
+          <div 
+            onMouseDown={handleChatDragStart}
+            className={`bg-slate-50 border-b border-slate-200 px-5 py-3 flex items-center justify-between shadow-sm ${
+              isChatFullscreen ? 'cursor-default' : 'cursor-move'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-lg">💬</span>
               <div className="text-right">
-                <h4 className="text-xs font-black text-amber-400">مربی سقراطی وردک در خدمت شماست</h4>
-                <p className="text-[10px] text-slate-300 font-bold mt-0.5">
-                  {vardakState === 'following' 
-                    ? 'روی شروع کلماتی که متوجه نشدی کلیک کن...' 
-                    : 'حالا موس را تا انتهای متن بکش و کلیک کن تا کادر قفل بشه...'}
-                </p>
+                <span className="block text-[8px] text-indigo-600 font-extrabold uppercase tracking-widest">گفتگوی مستقیم با مربی لومینا</span>
+                <span className="text-xs font-black text-slate-900">مربی راهنمای لومینا</span>
               </div>
             </div>
-            <button
-              onClick={() => setVardakState('idle')}
-              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-black transition-all border border-slate-700"
-            >
-              لغو ابزار
-            </button>
+            
+            {/* Header Actions */}
+            <div className="flex items-center gap-1.5" onMouseDown={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setIsChatFullscreen(!isChatFullscreen)}
+                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                title={isChatFullscreen ? "کوچک کردن صفحه" : "بزرگ کردن صفحه"}
+              >
+                {isChatFullscreen ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsVardakChatOpen(false)}
+                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-red-600 transition-all cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
+
+          {/* Messages Thread */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 select-text">
+            {vardakChatMessages.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`flex gap-2 max-w-[85%] ${msg.sender === 'user' ? 'mr-auto flex-row-reverse' : 'ml-auto'}`}
+              >
+                {msg.sender === 'vardak' && (
+                  <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center text-xs shrink-0 border border-amber-200">
+                    {msg.emotion || '💡'}
+                  </div>
+                )}
+                <div
+                  className={`p-3 rounded-2xl text-xs leading-relaxed font-bold flex flex-col ${
+                    msg.sender === 'user'
+                      ? 'bg-indigo-600 text-white rounded-tr-none shadow-sm'
+                      : 'bg-white border border-slate-150 text-slate-800 rounded-tl-none shadow-sm'
+                  }`}
+                >
+                  {/* Text Message Content */}
+                  {msg.text && <p className="whitespace-pre-line">{msg.text}</p>}
+
+                  {/* Rich Image Attachment */}
+                  {msg.image && (
+                    <div className="mt-2 rounded-xl overflow-hidden border border-slate-150/80 bg-slate-100 max-w-[240px]">
+                      <img 
+                        src={msg.image} 
+                        alt="طرح پیوست‌شده" 
+                        className="w-full h-auto max-h-40 object-cover cursor-zoom-in"
+                        onClick={() => window.open(msg.image)}
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  )}
+
+                  {/* Rich Audio Attachment */}
+                  {msg.audioUrl && (
+                    <div className="mt-2 bg-slate-50 border border-slate-150 p-1.5 rounded-xl flex items-center gap-2 max-w-[260px] ltr">
+                      <Volume2 size={13} className="text-indigo-600 shrink-0" />
+                      <audio src={msg.audioUrl} controls className="w-full h-6 outline-none text-[10px]" />
+                    </div>
+                  )}
+
+                  {/* Rich PDF Attachment */}
+                  {msg.pdf && (
+                    <div className="mt-2 bg-slate-50 border border-slate-150 p-2 rounded-xl flex items-center justify-between gap-2 max-w-[260px] text-right">
+                      <div className="flex items-center gap-1.5 overflow-hidden">
+                        <FileText size={16} className="text-indigo-600 shrink-0" />
+                        <div className="overflow-hidden">
+                          <span className="block text-[9px] font-black text-indigo-950 truncate">{msg.pdf.name}</span>
+                          <span className="block text-[7px] font-bold text-slate-400">{msg.pdf.size}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => alert(`دانلود سند آموزشی "${msg.pdf?.name}" آغاز شد...`)}
+                        className="p-1 bg-white hover:bg-indigo-100 border border-indigo-150 rounded text-indigo-700 transition-all text-[8px] font-black shrink-0 cursor-pointer"
+                      >
+                        دریافت
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {isVardakChatLoading && (
+              <div className="flex gap-2 max-w-[85%] ml-auto items-center">
+                <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center text-xs shrink-0 border border-amber-200 animate-spin">
+                  🔄
+                </div>
+                <div className="bg-white border border-slate-150 text-slate-400 rounded-2xl rounded-tl-none p-3 text-xs font-bold shadow-sm flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" />
+                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce delay-100" />
+                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce delay-200" />
+                </div>
+              </div>
+            )}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Pending Attachment Preview Bar */}
+          {pendingAttachment && (
+            <div className="px-4 py-2 bg-slate-50 border-t border-slate-150 flex items-center justify-between gap-3 animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <span className="text-xs">
+                  {pendingAttachment.type === 'image' ? '🖼️' : pendingAttachment.type === 'audio' ? '🎵' : '📄'}
+                </span>
+                <div className="text-right">
+                  <span className="block text-[9px] font-black text-slate-800 truncate max-w-[200px]">
+                    {pendingAttachment.file.name}
+                  </span>
+                  <span className="block text-[7px] font-bold text-indigo-600">
+                    {pendingAttachment.type === 'image' ? 'تصویر' : pendingAttachment.type === 'audio' ? 'صوت' : 'سند PDF'} - آماده بارگذاری
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingAttachment(null)}
+                className="p-1 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-red-500 transition-all cursor-pointer"
+                title="حذف ضمیمه"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          )}
+
+          {/* Attachment Selection Error Alert */}
+          {attachmentError && (
+            <div className="px-4 py-1.5 bg-red-50 text-red-600 text-[10px] font-bold text-right border-t border-red-100 animate-fadeIn">
+              ⚠️ {attachmentError}
+            </div>
+          )}
+
+          {/* Hidden File Input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileAttached}
+            className="hidden"
+          />
+
+          {/* Form Input with WhatsApp Attachment Flow */}
+          <form
+            onSubmit={sendVardakChatMessage}
+            className="p-3 bg-white border-t border-slate-150 flex gap-2 items-center"
+          >
+            {/* Attachment Button */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
+                className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                  isAttachmentMenuOpen 
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600' 
+                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-500'
+                }`}
+                title="ارسال ضمیمه آموزشی (تصویر، صوت، جزوه)"
+              >
+                <Paperclip size={14} />
+              </button>
+
+              {/* Attachment options dropdown overlay */}
+              {isAttachmentMenuOpen && (
+                <div className="absolute bottom-11 right-0 bg-white border border-slate-200 rounded-2xl shadow-xl p-1 w-32 z-[999] animate-fadeIn text-right">
+                  <button
+                    type="button"
+                    onClick={() => triggerAttachment('image')}
+                    className="w-full text-right px-2 py-1.5 text-[9px] font-black text-slate-700 hover:bg-indigo-50 hover:text-indigo-800 rounded-lg transition-all flex items-center gap-1.5"
+                  >
+                    <span>🖼️</span>
+                    <span>تصویر و طرح</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerAttachment('audio')}
+                    className="w-full text-right px-2 py-1.5 text-[9px] font-black text-slate-700 hover:bg-indigo-50 hover:text-indigo-800 rounded-lg transition-all flex items-center gap-1.5"
+                  >
+                    <span>🎵</span>
+                    <span>فایل صوتی</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerAttachment('pdf')}
+                    className="w-full text-right px-2 py-1.5 text-[9px] font-black text-slate-700 hover:bg-indigo-50 hover:text-indigo-800 rounded-lg transition-all flex items-center gap-1.5"
+                  >
+                    <span>📄</span>
+                    <span>سند PDF</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <input
+              type="text"
+              value={vardakChatInput}
+              onChange={(e) => setVardakChatInput(e.target.value)}
+              placeholder="در مورد مباحث درس بپرس یا فایلی بفرست..."
+              className="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all select-text"
+              disabled={isVardakChatLoading}
+            />
+            <button
+              type="submit"
+              disabled={(!vardakChatInput.trim() && !pendingAttachment) || isVardakChatLoading}
+              className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-slate-100 disabled:text-slate-400 transition-all cursor-pointer shrink-0"
+            >
+              <Send size={14} />
+            </button>
+          </form>
         </div>
       )}
 
-      {/* 2. Custom Bounding Box Selection Overlay */}
-      {vardakState === 'selecting' && (
+      {/* 2. Floating Text Selection Tooltip */}
+      {vardakState === 'selecting' && selectedText && selectedTextRect && (
         <div
-          className="fixed border-2 border-dashed border-amber-500 bg-amber-500/10 backdrop-blur-[0.5px] rounded-lg shadow-xl pointer-events-none z-[9998] transition-all duration-75 animate-pulse"
+          className="absolute z-[9999] animate-fadeIn"
           style={{
-            left: Math.min(selectionStart.x, vardakPos.x),
-            top: Math.min(selectionStart.y, vardakPos.y),
-            width: Math.abs(selectionStart.x - vardakPos.x),
-            height: Math.abs(selectionStart.y - vardakPos.y),
-          }}
-        />
-      )}
-
-      {/* 3. Mouse Follower Duck widget */}
-      {(vardakState === 'following' || vardakState === 'selecting' || vardakState === 'processing') && (
-        <div
-          className="fixed pointer-events-none z-[10000] transition-all duration-75 flex flex-col items-center"
-          style={{
-            left: vardakPos.x,
-            top: vardakPos.y,
+            left: selectedTextRect.x,
+            top: selectedTextRect.y,
             transform: 'translate(-50%, -100%)',
-            marginTop: '-15px'
+            marginTop: '-10px'
           }}
         >
-          {/* Animated Glow aura */}
-          <div className="absolute inset-0 bg-amber-400/30 blur-xl rounded-full animate-ping" />
-          
-          <div className="relative bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-amber-400 shadow-2xl flex items-center gap-1.5">
-            <span className="text-lg animate-bounce">🦆</span>
-            <span className="text-[9px] font-black text-amber-950 whitespace-nowrap bg-amber-50 px-1.5 py-0.5 rounded-lg border border-amber-200">
-              {vardakState === 'processing' ? 'در حال تفکر عمیق...' : 'وردک سقراطی'}
-            </span>
-          </div>
-          {/* Beak Indicator pointing down */}
-          <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-amber-400 -mt-[1px]" />
+          <button
+            onClick={() => {
+              handleVardakProcess(selectedText, selectedTextRect.x, selectedTextRect.y);
+              // Clear browser selection after triggering
+              window.getSelection()?.removeAllRanges();
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-[10px] font-black shadow-lg shadow-indigo-200/50 hover:shadow-indigo-400/30 transition-all scale-100 hover:scale-105 active:scale-95 border border-indigo-700 whitespace-nowrap cursor-pointer"
+          >
+            <span>💡 دریافت راهنمایی مربی</span>
+          </button>
+          {/* Little arrow pointing to selection */}
+          <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-indigo-600 mx-auto -mt-[1px]" />
         </div>
       )}
 
       {/* 4. Draggable & Resizable Floating Socratic Modal */}
       {isVardakModalOpen && vardakResult && (
         <div
-          className="fixed z-[9999] bg-white/95 backdrop-blur-xl border-2 border-amber-400 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-shadow duration-300 select-none hover:shadow-amber-100/50"
-          style={{
+          className={`fixed z-[9999] bg-white/95 backdrop-blur-xl border-2 border-indigo-400 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 select-none hover:shadow-indigo-100/50 ${
+            isGuidanceFullscreen 
+              ? 'top-4 left-4 right-4 bottom-4 md:top-8 md:left-8 md:right-8 md:bottom-8' 
+              : ''
+          }`}
+          style={isGuidanceFullscreen ? { direction: 'rtl' } : {
             left: vardakModalPos.x,
             top: vardakModalPos.y,
             width: vardakModalSize.w,
@@ -3052,37 +3499,80 @@ export default function StudentPanel({
           {/* Header - Drag Handle */}
           <div
             onMouseDown={handleModalDragStart}
-            className="cursor-move bg-slate-900 text-white px-5 py-3 flex items-center justify-between shadow-md"
+            className={`bg-slate-50 border-b border-slate-200 px-5 py-3 flex items-center justify-between shadow-sm ${
+              isGuidanceFullscreen ? 'cursor-default' : 'cursor-move'
+            }`}
           >
             <div className="flex items-center gap-2">
-              <span className="text-xl animate-wiggle">{vardakResult.emotion || '🦆'}</span>
+              <span className="text-lg">{vardakResult.emotion || '💡'}</span>
               <div className="text-right">
-                <span className="block text-[8px] text-amber-400 font-extrabold uppercase tracking-widest">رفع اشکال سقراطی با مربی لومینا</span>
-                <span className="text-xs font-black text-white">{vardakResult.concept || 'مفهوم کلیدی'}</span>
+                <span className="block text-[8px] text-indigo-600 font-extrabold uppercase tracking-widest">آموزش و راهنمایی مربی لومینا</span>
+                <span className="text-xs font-black text-slate-900">{vardakResult.concept || 'مفهوم کلیدی'}</span>
               </div>
             </div>
-            <button
-              onClick={() => {
-                setIsVardakModalOpen(false);
-                if (vardakState === 'answering') setVardakState('idle');
-              }}
-              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all border border-slate-700"
-            >
-              <X size={14} />
-            </button>
+
+            {/* Header Actions */}
+            <div className="flex items-center gap-1.5" onMouseDown={(e) => e.stopPropagation()}>
+              {/* Zoom Out */}
+              <button
+                type="button"
+                onClick={() => setGuidanceZoom(prev => Math.max(80, prev - 10))}
+                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-all cursor-pointer flex items-center justify-center"
+                title="کوچک‌نمایی متن"
+              >
+                <ZoomOut size={13} />
+              </button>
+
+              {/* Zoom In */}
+              <button
+                type="button"
+                onClick={() => setGuidanceZoom(prev => Math.min(150, prev + 10))}
+                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-all cursor-pointer flex items-center justify-center"
+                title="بزرگ‌نمایی متن"
+              >
+                <ZoomIn size={13} />
+              </button>
+
+              {/* Fullscreen Toggle */}
+              <button
+                type="button"
+                onClick={() => setIsGuidanceFullscreen(!isGuidanceFullscreen)}
+                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                title={isGuidanceFullscreen ? "کوچک کردن صفحه" : "بزرگ کردن صفحه"}
+              >
+                {isGuidanceFullscreen ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  flyBackToNest();
+                }}
+                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-red-600 transition-all cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
           {/* Modal Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4 text-right">
+          <div 
+            className="flex-1 overflow-y-auto p-5 space-y-4 text-right"
+            style={{ fontSize: `${guidanceZoom}%` }}
+          >
             {/* Captured text quotation */}
             <div className="bg-slate-50 border-r-2 border-slate-300 p-2.5 rounded-lg text-[10px] font-black text-slate-600 line-clamp-2">
               متن نشان‌شده: "{capturedText}"
             </div>
 
             {/* Socratic Primary Message */}
-            <div className="bg-amber-50/60 border border-amber-100 p-4 rounded-2xl relative">
-              <div className="absolute top-3 left-3 bg-amber-100 text-amber-800 text-[8px] font-black px-2 py-0.5 rounded-full">
-                تحلیل وردک
+            <div className="bg-indigo-50/40 border border-indigo-100/50 p-4 rounded-2xl relative">
+              <div className="absolute top-3 left-3 bg-indigo-100 text-indigo-800 text-[8px] font-black px-2 py-0.5 rounded-full">
+                راهنمایی مربی
               </div>
               <p className="text-slate-800 text-xs leading-relaxed font-bold whitespace-pre-wrap pt-2">
                 {vardakResult.message}
@@ -3091,7 +3581,7 @@ export default function StudentPanel({
 
             {/* Collapsible Sequential Hints Section */}
             <div className="space-y-2">
-              <span className="block text-[10px] text-amber-700 font-black">💡 سرنخ‌های گام‌به‌گام وردک (به ترتیب باز کنید)</span>
+              <span className="block text-[10px] text-indigo-700 font-black">💡 سرنخ‌های گام‌به‌گام مربی (به ترتیب باز کنید)</span>
               {vardakResult.hints && vardakResult.hints.map((hint: string, idx: number) => {
                 const isRevealed = revealedHints.includes(idx);
                 const isLocked = idx > 0 && !revealedHints.includes(idx - 1);
@@ -3102,7 +3592,7 @@ export default function StudentPanel({
                       ? 'border-emerald-200 bg-emerald-50/30' 
                       : isLocked 
                         ? 'border-slate-100 bg-slate-50/50 opacity-60' 
-                        : 'border-amber-200 bg-amber-50/10 hover:bg-amber-50/20'
+                        : 'border-indigo-150 bg-indigo-50/10 hover:bg-indigo-50/20'
                   }`}>
                     {isRevealed ? (
                       <div className="p-3">
@@ -3122,7 +3612,7 @@ export default function StudentPanel({
                           }
                         }}
                         className={`w-full p-3 flex items-center justify-between text-right text-xs font-black transition-all ${
-                          isLocked ? 'cursor-not-allowed' : 'cursor-pointer text-amber-800'
+                          isLocked ? 'cursor-not-allowed' : 'cursor-pointer text-indigo-800'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -3153,24 +3643,26 @@ export default function StudentPanel({
 
             {/* Simplistic Analogy/Code block */}
             {vardakResult.example && (
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2">
-                <span className="block text-[10px] text-amber-400 font-extrabold">💡 یک شبیه‌سازی یا مثال ملموس</span>
-                <pre className="text-[10px] font-mono text-emerald-400 overflow-x-auto text-left ltr whitespace-pre-wrap leading-relaxed">
+              <div className="bg-indigo-50/30 border border-indigo-150 p-4 rounded-2xl space-y-2">
+                <span className="block text-[10px] text-indigo-800 font-extrabold">💡 یک شبیه‌سازی یا مثال ملموس</span>
+                <div className="text-right rtl text-xs text-slate-700 leading-relaxed font-bold whitespace-pre-wrap text-justify">
                   {vardakResult.example}
-                </pre>
+                </div>
               </div>
             )}
           </div>
 
           {/* Resizable handle - bottom left */}
-          <div
-            onMouseDown={handleModalResizeStart}
-            className="absolute bottom-0 left-0 w-5 h-5 cursor-nwse-resize flex items-end justify-start p-1"
-            title="تغییر ابعاد کادر مربی"
-          >
-            {/* Simple diagonal lines to indicate resize */}
-            <div className="w-2.5 h-2.5 border-b-2 border-l-2 border-slate-400/70" />
-          </div>
+          {!isGuidanceFullscreen && (
+            <div
+              onMouseDown={handleModalResizeStart}
+              className="absolute bottom-0 left-0 w-5 h-5 cursor-nwse-resize flex items-end justify-start p-1"
+              title="تغییر ابعاد کادر مربی"
+            >
+              {/* Simple diagonal lines to indicate resize */}
+              <div className="w-2.5 h-2.5 border-b-2 border-l-2 border-slate-400/70" />
+            </div>
+          )}
         </div>
       )}
 

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { User as UserType, Lesson, Submission, Question, AnswerType, LessonImage, Course, CourseEnrollment, DirectMessage, Rating } from '../types';
 import AudioRecorder from './AudioRecorder';
-import { Paperclip, File, Download, UploadCloud, RefreshCw } from 'lucide-react';
+import { Paperclip, File, Download, UploadCloud, RefreshCw, Play, RotateCw } from 'lucide-react';
 import DbSyncIndicator from './DbSyncIndicator';
 
 interface TeacherPanelProps {
@@ -97,6 +97,7 @@ export default function TeacherPanel({
   const [manualFeedback, setManualFeedback] = useState('');
   const [aiReviewResult, setAiReviewResult] = useState('');
   const [isAiReviewing, setIsAiReviewing] = useState(false);
+  const [isAutoExecuting, setIsAutoExecuting] = useState(false);
   const [gradedBy, setGradedBy] = useState<'teacher' | 'assistant'>('teacher');
   const [isTryAgainRequested, setIsTryAgainRequested] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -416,6 +417,66 @@ export default function TeacherPanel({
       console.error(e);
       setAiReviewResult('خطا در اتصال به سرور هوش مصنوعی. لطفاً دوباره تلاش کنید.');
     } finally {
+      setIsAiReviewing(false);
+    }
+  };
+
+  const handleAutomaticTaskExecution = async (sub: Submission) => {
+    setIsAutoExecuting(true);
+    try {
+      let reviewResult = aiReviewResult;
+      let suggestedGrade = manualGrade;
+      let feedbackText = manualFeedback;
+
+      if (!aiReviewResult) {
+        setIsAiReviewing(true);
+        const lesson = lessons.find(l => l.id === sub.lessonId);
+        const res = await fetch('/api/ai/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lesson,
+            studentName: sub.studentName,
+            answers: sub.answers
+          })
+        });
+        const data = await res.json();
+        const extractedFeedback = data.teacherFeedback || data.feedback;
+        if (res.ok && extractedFeedback) {
+          reviewResult = extractedFeedback;
+          suggestedGrade = data.grade !== undefined ? data.grade : Math.round(sub.maxPoints * 0.8);
+          feedbackText = extractedFeedback;
+          
+          setAiReviewResult(extractedFeedback);
+          setManualFeedback(extractedFeedback);
+          if (data.grade !== undefined) {
+            setManualGrade(data.grade);
+          }
+        } else {
+          throw new Error(data.error || 'خطا در ارزیابی هوش مصنوعی');
+        }
+      }
+
+      // Automatically set grading signature to teacher
+      setGradedBy('teacher');
+
+      // Auto-determine try again (if grade < 80% of max points, request Try Again)
+      const passingScore = sub.maxPoints * 0.8;
+      const shouldTryAgain = suggestedGrade < passingScore;
+      setIsTryAgainRequested(shouldTryAgain);
+
+      alert(`⚡ اجرای خودکار وظایف با موفقیت انجام شد:
+- نمره پیشنهادی (${suggestedGrade} از ${sub.maxPoints}) در فیلد نمره ثبت شد.
+- بازخورد تفصیلی استادیار در فیلد بازخورد ثبت شد.
+- امضای برگه به عنوان «استاد» تنظیم گردید.
+- وضعیت ارزیابی به «${shouldTryAgain ? 'درخواست تلاش مجدد (Try Again)' : 'تکمیل و تأیید نهایی چالش'}» تنظیم شد.
+اکنون می‌توانید بررسی نهایی را انجام داده و با زدن دکمه ذخیره، تکلیف را ثبت کنید.`);
+
+    } catch (err: any) {
+      console.error(err);
+      alert('خطا در اجرای خودکار وظایف: ' + (err.message || err));
+    } finally {
+      setIsAutoExecuting(false);
       setIsAiReviewing(false);
     }
   };
@@ -2005,13 +2066,32 @@ export default function TeacherPanel({
                               <Sparkles size={16} className="text-indigo-600" />
                               <h4 className="text-xs font-black text-indigo-950">تحلیل ارزیابی هوش مصنوعی (Gemini-3.5)</h4>
                             </div>
-                            <button
-                              onClick={() => handleRequestAiReview(sub)}
-                              disabled={isAiReviewing}
-                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black rounded-lg transition disabled:opacity-50"
-                            >
-                              {isAiReviewing ? 'در حال بررسی کدها...' : 'محاسبه ارزیابی هوشمند'}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleRequestAiReview(sub)}
+                                disabled={isAiReviewing || isAutoExecuting}
+                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black rounded-lg transition disabled:opacity-50"
+                              >
+                                {isAiReviewing && !isAutoExecuting ? 'در حال بررسی کدها...' : 'محاسبه ارزیابی هوشمند'}
+                              </button>
+                              <button
+                                onClick={() => handleAutomaticTaskExecution(sub)}
+                                disabled={isAiReviewing || isAutoExecuting}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-black rounded-lg transition disabled:opacity-50 flex items-center gap-1 shadow-sm"
+                              >
+                                {isAutoExecuting ? (
+                                  <>
+                                    <RotateCw size={11} className="animate-spin" />
+                                    <span>در حال اجرا...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play size={11} />
+                                    <span>اجرای خودکار وظایف</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </div>
 
                           {aiReviewResult || sub.assistantFeedback ? (
@@ -2049,7 +2129,7 @@ export default function TeacherPanel({
                                       : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                                   }`}
                                 >
-                                  👨‍🏫 استاد اصلی (سعید)
+                                  👨‍🏫 استاد
                                 </button>
                                 <button
                                   type="button"
