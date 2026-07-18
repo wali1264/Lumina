@@ -1182,6 +1182,114 @@ ${content}
     }
   });
 
+  // 8. AI Socratic Mentor "Vardak" (For Students)
+  app.post("/api/ai/vardak-mentor", async (req, res) => {
+    try {
+      const { selectedText, lessonTitle, lessonContent, studentLevel } = req.body;
+      const level = studentLevel || "beginner";
+
+      if (!selectedText || selectedText.trim() === "") {
+        return res.status(400).json({ error: "متن انتخاب شده برای تحلیل الزامی است." });
+      }
+
+      const activeKey = getEffectiveGeminiKey();
+      if (!activeKey) {
+        console.warn("GEMINI_API_KEY is missing or invalid. Using simulated Vardak mentor.");
+        return res.json({
+          emotion: "🦆",
+          concept: "مفهوم انتخاب‌شده در درس",
+          message: `سلام دوست من! من وردک (مربی سقراطی لومینا) هستم. به نظر می‌رسه روی این بخش تمرکز کردی: "${selectedText.substring(0, 60)}...". بیا با هم بررسی کنیم که هدف اصلی این بخش چیه و چطور می‌تونی اون رو درک کنی. این مفهوم به ما کمک می‌کنه کارهای تکراری یا سخت رو خیلی راحت انجام بدیم.`,
+          hints: [
+            "به این فکر کن که در زندگی واقعی چطور اطلاعات یا مقادیر رو دسته‌بندی می‌کنی؟",
+            "اگر بخواهیم این کار را چندین بار تکرار کنیم، چه ساختاری منطقی‌تر است؟",
+            "یک بار دیگر به ورودی‌ها و خروجی‌های این بخش از کد یا متن دقت کن."
+          ],
+          guiding_questions: [
+            "اگر این خط وجود نداشت، چه مشکلی در اجرای برنامه پیش می‌آمد؟",
+            "تفاوت اصلی این رویکرد با روش‌های دستی ساده‌تر چیست؟"
+          ],
+          example: "// به عنوان مثال:\nconst name = 'Lumina';\nconsole.log('خوش آمدید به ' + name);"
+        });
+      }
+
+      const prompt = `
+تو "وردک" (Vardak) مربی هوشمند و سقراطی آکادمی لومینا (Lumina Smart Academy) هستی.
+وظیفه تو این است که به عنوان یک مربی باتجربه و دلسوز، به دانشجویی که در درک یک بخش خاص از درس دچار ابهام شده کمک کنی.
+
+مشخصات ابهام دانشجو:
+- عنوان درس: "${lessonTitle}"
+- کل متن درس‌نامه جهت داشتن زمینه و Context آموزشی:
+"""
+${lessonContent}
+"""
+- بخش خاصی از درس که دانشجو انتخاب کرده و متوجه نشده است:
+"""
+${selectedText}
+"""
+- سطح دانشجو: ${level === "beginner" ? "مبتدی" : level === "intermediate" ? "متوسط" : "پیشرفته"}
+
+قوانین و رفتارهای آموزشی الزامی برای "وردک":
+1. روش سقراطی (Socratic Method): تو به هیچ وجه نباید مستقیماً پاسخ نهایی چالش را فاش کنی، ترجمه مستقیم تحویل دهی یا کدهای آماده را بدون هیچ تلاشی از سمت دانشجو بنویسی! وظیفه تو این است که با ارائه سرنخ‌های گام‌به‌گام (progressive hints)، مقایسه‌ها یا آنالوژی‌های ساده روزمره و پرسش‌های کلیدی، ذهن او را فعال کنی تا خودش پاسخ را کشف کند.
+2. لحن انسانی و صمیمی (Interactive Human Tone): مانند معلمی دلسوز، صمیمی، انگیزه بخش و باحوصله رفتار کن. از جملات خشک، مکانیکی یا تحقیرآمیز کاملاً پرهیز کن. برای مثال به جای "این اشتباه است" بگو "مسیر فکری جالبی داری، اما بیا به این زاویه هم نگاه کنیم...".
+3. تمرکز بالا و دوری از حاشیه: مقدمه‌های طولانی یا احوالپرسی‌های رسمی را فاکتور بگیر و مستقیماً روی راهنمایی و گره‌گشایی از همان ابهام متمتور شو.
+4. رعایت اعداد انگلیسی: تمام مقادیر عددی داخل متن و نمرات باید با اعداد انگلیسی (مثل 1, 2, 5, 100) نوشته شوند، نه با اعداد فارسی.
+5. خروجی باید کاملاً با فرمت JSON توصیف شده در زیر مطابقت داشته باشد.
+
+فرمت خروجی را به عنوان یک شیء با ویژگی‌های زیر ارسال کن:
+`;
+
+      const responseText = await executeWithGeminiPool(async (client, keyName) => {
+        console.log(`[Gemini API] Running Vardak Socratic Mentor with key: ${keyName}`);
+        const response = await client.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                emotion: {
+                  type: Type.STRING,
+                  description: "یک ایموجی نشان‌دهنده حس وردک در این لحظه (مثلاً 🤔, 💡, 🎓, 🚀, 🦆)"
+                },
+                concept: {
+                  type: Type.STRING,
+                  description: "نام مفهوم کلیدی مورد بحث در متن انتخابی"
+                },
+                message: {
+                  type: Type.STRING,
+                  description: "پیام اولیه صمیمی و مربیگونه سقراطی که بدون فاش کردن پاسخ مستقیم، ذهن دانشجو را هدایت می‌کند."
+                },
+                hints: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: "لیستی از ۳ سرنخ یا راهنمایی تدریجی و پله‌پله (از ساده به عمیق)"
+                },
+                guiding_questions: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: "یک یا دو سوال هوشمندانه تفکربرانگیز که ذهن دانشجو را به چالش می‌کشد تا خودش به جواب برسد."
+                },
+                example: {
+                  type: Type.STRING,
+                  description: "یک نمونه کد بسیار ساده، شبه‌کد یا آنالوژی دنیای واقعی ملموس برای جا افتادن بهتر موضوع بدون حل مستقیم سوال کاربر."
+                }
+              },
+              required: ["emotion", "concept", "message", "hints", "guiding_questions", "example"]
+            }
+          }
+        });
+        return response.text || "{}";
+      });
+
+      const data = JSON.parse(responseText.trim());
+      res.json(data);
+    } catch (error: any) {
+      console.error("Vardak Mentor error:", error);
+      res.status(500).json({ error: error.message || "خطا در ارتباط با مربی سقراطی هوش مصنوعی" });
+    }
+  });
+
   // --- Vite & Production Static File Serving Middleware ---
 
   if (process.env.VERCEL !== "1") {

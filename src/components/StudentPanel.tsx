@@ -164,6 +164,247 @@ export default function StudentPanel({
 
   // Supplementary resource modals
   const [isAudioListModalOpen, setIsAudioListModalOpen] = useState(false);
+
+  // --- Socratic AI Mentor "Vardak" (Little Duck) States & Logic ---
+  const [vardakState, setVardakState] = useState<'idle' | 'following' | 'selecting' | 'processing' | 'answering'>('idle');
+  const [vardakPos, setVardakPos] = useState({ x: 0, y: 0 });
+  const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
+  const [selectionEnd, setSelectionEnd] = useState({ x: 0, y: 0 });
+  const [capturedText, setCapturedText] = useState('');
+  const [vardakResult, setVardakResult] = useState<any | null>(null);
+  const [isVardakModalOpen, setIsVardakModalOpen] = useState(false);
+  const [revealedHints, setRevealedHints] = useState<number[]>([]);
+  const [vardakModalPos, setVardakModalPos] = useState({ x: 100, y: 150 });
+  const [vardakModalSize, setVardakModalSize] = useState({ w: 430, h: 540 });
+  const [isVardakError, setIsVardakError] = useState('');
+  
+  const [isVardakModalDragging, setIsVardakModalDragging] = useState(false);
+  const [isVardakModalResizing, setIsVardakModalResizing] = useState(false);
+  
+  const vardakDragStart = useRef({ x: 0, y: 0 });
+  const vardakResizeStart = useRef({ w: 0, h: 0, x: 0, y: 0 });
+
+  // Track mouse position in following/selecting states
+  useEffect(() => {
+    if (vardakState === 'following' || vardakState === 'selecting') {
+      const handleMouseMove = (e: MouseEvent) => {
+        setVardakPos({ x: e.clientX, y: e.clientY });
+      };
+      window.addEventListener('mousemove', handleMouseMove);
+      return () => window.removeEventListener('mousemove', handleMouseMove);
+    }
+  }, [vardakState]);
+
+  // Capture selection clicks on window
+  useEffect(() => {
+    const handleWindowClick = (e: MouseEvent) => {
+      if (vardakState === 'following') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectionStart({ x: e.clientX, y: e.clientY });
+        setSelectionEnd({ x: e.clientX, y: e.clientY });
+        setVardakState('selecting');
+      } else if (vardakState === 'selecting') {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const endX = e.clientX;
+        const endY = e.clientY;
+        setSelectionEnd({ x: endX, y: endY });
+        setVardakState('processing');
+        
+        const text = getSelectedTextFromPoints(selectionStart.x, selectionStart.y, endX, endY);
+        handleVardakProcess(text, selectionStart.x, selectionStart.y);
+      }
+    };
+
+    if (vardakState === 'following' || vardakState === 'selecting') {
+      window.addEventListener('click', handleWindowClick, true);
+      return () => window.removeEventListener('click', handleWindowClick, true);
+    }
+  }, [vardakState, selectionStart]);
+
+  // Dragging & Resizing modal handlers
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isVardakModalDragging) {
+        setVardakModalPos({
+          x: e.clientX - vardakDragStart.current.x,
+          y: e.clientY - vardakDragStart.current.y
+        });
+      }
+      if (isVardakModalResizing) {
+        const dw = e.clientX - vardakResizeStart.current.x;
+        const dh = e.clientY - vardakResizeStart.current.y;
+        setVardakModalSize({
+          w: Math.max(340, vardakResizeStart.current.w - dw), // drag left to expand in RTL
+          h: Math.max(300, vardakResizeStart.current.h + dh)
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsVardakModalDragging(false);
+      setIsVardakModalResizing(false);
+    };
+
+    if (isVardakModalDragging || isVardakModalResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isVardakModalDragging, isVardakModalResizing]);
+
+  // Socratic text extraction
+  const getSelectedTextFromPoints = (x1: number, y1: number, x2: number, y2: number): string => {
+    const normalSel = window.getSelection()?.toString().trim();
+    if (normalSel && normalSel.length > 0) {
+      return normalSel;
+    }
+
+    if (document.caretRangeFromPoint) {
+      try {
+        const startRange = document.caretRangeFromPoint(x1, y1);
+        const endRange = document.caretRangeFromPoint(x2, y2);
+        if (startRange && endRange) {
+          const range = document.createRange();
+          const startNode = startRange.startContainer;
+          const startOffset = startRange.startOffset;
+          const endNode = endRange.startContainer;
+          const endOffset = endRange.startOffset;
+
+          const compare = startNode.compareDocumentPosition(endNode);
+          if (compare & Node.DOCUMENT_POSITION_PRECEDING) {
+            range.setStart(endNode, endOffset);
+            range.setEnd(startNode, startOffset);
+          } else {
+            range.setStart(startNode, startOffset);
+            range.setEnd(endNode, endOffset);
+          }
+
+          const text = range.toString().trim();
+          if (text.length > 0) {
+            const sel = window.getSelection();
+            if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+            return text;
+          }
+        }
+      } catch (err) {
+        console.error("Caret selection error:", err);
+      }
+    }
+
+    try {
+      const el = document.elementFromPoint(x1, y1);
+      if (el) {
+        const tagName = el.tagName.toLowerCase();
+        if (['p', 'span', 'h1', 'h2', 'h3', 'h4', 'li', 'code', 'pre', 'article'].includes(tagName)) {
+          return el.textContent?.trim() || "";
+        }
+        const parentP = el.closest('p, li, pre, article');
+        if (parentP) {
+          return parentP.textContent?.trim() || "";
+        }
+      }
+    } catch (err) {
+      console.error("Element point lookup error:", err);
+    }
+
+    return "";
+  };
+
+  const handleVardakProcess = async (text: string, x: number, y: number) => {
+    if (!text || text.trim().length === 0) {
+      setVardakState('idle');
+      return;
+    }
+
+    setCapturedText(text);
+    setVardakState('processing');
+    setIsVardakError('');
+    setRevealedHints([]);
+
+    try {
+      const response = await fetch('/api/ai/vardak-mentor', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          selectedText: text,
+          lessonTitle: activeLesson?.title || '',
+          lessonContent: (showTeacherText ? activeLesson?.teacherText : activeLesson?.content) || '',
+          studentLevel: currentUser?.level || 'beginner'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('سیستم مربی سقراطی موقتاً در دسترس نیست.');
+      }
+
+      const data = await response.json();
+      setVardakResult(data);
+      
+      const modalX = Math.min(window.innerWidth - 450, Math.max(20, x - 210));
+      const modalY = Math.min(window.innerHeight - 560, Math.max(50, y - 100));
+      setVardakModalPos({ x: modalX, y: modalY });
+      setIsVardakModalOpen(true);
+      setVardakState('answering');
+    } catch (err: any) {
+      console.error("Vardak mentor API error:", err);
+      setVardakResult({
+        emotion: '🦆',
+        concept: 'ابهام در درک بخش انتخاب‌شده',
+        message: `سلام دوست من! اتصال شبکه کمی بازیگوشی می‌کنه، اما بیا خودمون با قدرت ذهن خودت به این بخش نگاه کنیم: "${text.substring(0, 80)}..."`,
+        hints: [
+          "کمی مکث کن. به ساختار کلی خطوط همسایه دقت کن؛ ورودی این تکه متن از کجا تأمین شده؟",
+          "اگر می‌خواستی کلمه‌ای شبیه به این را در زندگی روزمره شرح دهی، چه مثالی می‌آوردی؟",
+          "هدف اصلی این بخش انجام یک کار تکراری است یا یک مقایسه منطقی؟"
+        ],
+        guiding_questions: [
+          "فکر می‌کنی اگر این دستور به کل حذف می‌شد، نتیجه نهایی چه فرقی می‌کرد؟"
+        ],
+        example: "// به این مثال ساده توجه کن:\nconst score = 100;\nif (score >= 50) {\n  console.log('موفق شدید!');\n}"
+      });
+      
+      const modalX = Math.min(window.innerWidth - 450, Math.max(20, x - 210));
+      const modalY = Math.min(window.innerHeight - 560, Math.max(50, y - 100));
+      setVardakModalPos({ x: modalX, y: modalY });
+      setIsVardakModalOpen(true);
+      setVardakState('answering');
+    }
+  };
+
+  const toggleVardakState = () => {
+    if (vardakState === 'idle') {
+      setVardakState('following');
+    } else {
+      setVardakState('idle');
+      setIsVardakModalOpen(false); // fallbacks to close just in case
+    }
+  };
+
+  const handleModalDragStart = (e: React.MouseEvent) => {
+    setIsVardakModalDragging(true);
+    vardakDragStart.current = { x: e.clientX - vardakModalPos.x, y: e.clientY - vardakModalPos.y };
+  };
+
+  const handleModalResizeStart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsVardakModalResizing(true);
+    vardakResizeStart.current = {
+      w: vardakModalSize.w,
+      h: vardakModalSize.h,
+      x: e.clientX,
+      y: e.clientY
+    };
+  };
   const [isVideoListModalOpen, setIsVideoListModalOpen] = useState(false);
   const [isPdfListModalOpen, setIsPdfListModalOpen] = useState(false);
 
@@ -1521,6 +1762,20 @@ export default function StudentPanel({
                     </button>
                   )}
 
+                  {/* Socratic AI Mentor Vardak Button */}
+                  <button
+                    onClick={toggleVardakState}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black border transition-all shadow-md active:scale-95 ${
+                      vardakState !== 'idle'
+                        ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white border-amber-500 shadow-amber-200/50 animate-pulse'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                    }`}
+                    title="مربی سقراطی لومینا (وردک) - رفع اشکال گام‌به‌گام"
+                  >
+                    <span className="text-xs">🦆</span>
+                    <span>{vardakState !== 'idle' ? 'توقف مربی سقراطی' : 'رفع اشکال با وردک (مربی سقراطی)'}</span>
+                  </button>
+
                   {/* PDF Resources Button */}
                   {(activeLesson.pdfResources && activeLesson.pdfResources.length > 0) ? (
                     <button
@@ -2709,6 +2964,212 @@ export default function StudentPanel({
                 ثبت و ارسال امتیاز
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================== */}
+      {/* --- Socratic AI Mentor "Vardak" Layout Components --- */}
+      {/* ========================================== */}
+
+      {/* 1. Floating Instruction Banner */}
+      {(vardakState === 'following' || vardakState === 'selecting') && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] w-[90%] max-w-xl animate-bounce">
+          <div className="bg-slate-900/95 backdrop-blur-md text-white border border-slate-800 shadow-2xl rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-500 rounded-xl animate-pulse">
+                <span className="text-base">🦆</span>
+              </div>
+              <div className="text-right">
+                <h4 className="text-xs font-black text-amber-400">مربی سقراطی وردک در خدمت شماست</h4>
+                <p className="text-[10px] text-slate-300 font-bold mt-0.5">
+                  {vardakState === 'following' 
+                    ? 'روی شروع کلماتی که متوجه نشدی کلیک کن...' 
+                    : 'حالا موس را تا انتهای متن بکش و کلیک کن تا کادر قفل بشه...'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setVardakState('idle')}
+              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-black transition-all border border-slate-700"
+            >
+              لغو ابزار
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Custom Bounding Box Selection Overlay */}
+      {vardakState === 'selecting' && (
+        <div
+          className="fixed border-2 border-dashed border-amber-500 bg-amber-500/10 backdrop-blur-[0.5px] rounded-lg shadow-xl pointer-events-none z-[9998] transition-all duration-75 animate-pulse"
+          style={{
+            left: Math.min(selectionStart.x, vardakPos.x),
+            top: Math.min(selectionStart.y, vardakPos.y),
+            width: Math.abs(selectionStart.x - vardakPos.x),
+            height: Math.abs(selectionStart.y - vardakPos.y),
+          }}
+        />
+      )}
+
+      {/* 3. Mouse Follower Duck widget */}
+      {(vardakState === 'following' || vardakState === 'selecting' || vardakState === 'processing') && (
+        <div
+          className="fixed pointer-events-none z-[10000] transition-all duration-75 flex flex-col items-center"
+          style={{
+            left: vardakPos.x,
+            top: vardakPos.y,
+            transform: 'translate(-50%, -100%)',
+            marginTop: '-15px'
+          }}
+        >
+          {/* Animated Glow aura */}
+          <div className="absolute inset-0 bg-amber-400/30 blur-xl rounded-full animate-ping" />
+          
+          <div className="relative bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-amber-400 shadow-2xl flex items-center gap-1.5">
+            <span className="text-lg animate-bounce">🦆</span>
+            <span className="text-[9px] font-black text-amber-950 whitespace-nowrap bg-amber-50 px-1.5 py-0.5 rounded-lg border border-amber-200">
+              {vardakState === 'processing' ? 'در حال تفکر عمیق...' : 'وردک سقراطی'}
+            </span>
+          </div>
+          {/* Beak Indicator pointing down */}
+          <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-amber-400 -mt-[1px]" />
+        </div>
+      )}
+
+      {/* 4. Draggable & Resizable Floating Socratic Modal */}
+      {isVardakModalOpen && vardakResult && (
+        <div
+          className="fixed z-[9999] bg-white/95 backdrop-blur-xl border-2 border-amber-400 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-shadow duration-300 select-none hover:shadow-amber-100/50"
+          style={{
+            left: vardakModalPos.x,
+            top: vardakModalPos.y,
+            width: vardakModalSize.w,
+            height: vardakModalSize.h,
+            direction: 'rtl'
+          }}
+        >
+          {/* Header - Drag Handle */}
+          <div
+            onMouseDown={handleModalDragStart}
+            className="cursor-move bg-slate-900 text-white px-5 py-3 flex items-center justify-between shadow-md"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xl animate-wiggle">{vardakResult.emotion || '🦆'}</span>
+              <div className="text-right">
+                <span className="block text-[8px] text-amber-400 font-extrabold uppercase tracking-widest">رفع اشکال سقراطی با مربی لومینا</span>
+                <span className="text-xs font-black text-white">{vardakResult.concept || 'مفهوم کلیدی'}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setIsVardakModalOpen(false);
+                if (vardakState === 'answering') setVardakState('idle');
+              }}
+              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all border border-slate-700"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          {/* Modal Content - Scrollable */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 text-right">
+            {/* Captured text quotation */}
+            <div className="bg-slate-50 border-r-2 border-slate-300 p-2.5 rounded-lg text-[10px] font-black text-slate-600 line-clamp-2">
+              متن نشان‌شده: "{capturedText}"
+            </div>
+
+            {/* Socratic Primary Message */}
+            <div className="bg-amber-50/60 border border-amber-100 p-4 rounded-2xl relative">
+              <div className="absolute top-3 left-3 bg-amber-100 text-amber-800 text-[8px] font-black px-2 py-0.5 rounded-full">
+                تحلیل وردک
+              </div>
+              <p className="text-slate-800 text-xs leading-relaxed font-bold whitespace-pre-wrap pt-2">
+                {vardakResult.message}
+              </p>
+            </div>
+
+            {/* Collapsible Sequential Hints Section */}
+            <div className="space-y-2">
+              <span className="block text-[10px] text-amber-700 font-black">💡 سرنخ‌های گام‌به‌گام وردک (به ترتیب باز کنید)</span>
+              {vardakResult.hints && vardakResult.hints.map((hint: string, idx: number) => {
+                const isRevealed = revealedHints.includes(idx);
+                const isLocked = idx > 0 && !revealedHints.includes(idx - 1);
+
+                return (
+                  <div key={idx} className={`border rounded-xl transition-all ${
+                    isRevealed 
+                      ? 'border-emerald-200 bg-emerald-50/30' 
+                      : isLocked 
+                        ? 'border-slate-100 bg-slate-50/50 opacity-60' 
+                        : 'border-amber-200 bg-amber-50/10 hover:bg-amber-50/20'
+                  }`}>
+                    {isRevealed ? (
+                      <div className="p-3">
+                        <div className="flex items-center justify-between text-[10px] font-black text-emerald-700 border-b border-emerald-100/50 pb-1.5 mb-1.5">
+                          <span>سرنخ شماره {idx + 1}</span>
+                          <span className="text-xs">✅</span>
+                        </div>
+                        <p className="text-xs text-slate-800 font-bold leading-relaxed">{hint}</p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() => {
+                          if (!isLocked) {
+                            setRevealedHints([...revealedHints, idx]);
+                          }
+                        }}
+                        className={`w-full p-3 flex items-center justify-between text-right text-xs font-black transition-all ${
+                          isLocked ? 'cursor-not-allowed' : 'cursor-pointer text-amber-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs">{isLocked ? '🔒' : '👁️'}</span>
+                          <span>مشاهده سرنخ {idx + 1}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-bold">
+                          {isLocked ? 'ابتدا سرنخ قبلی را باز کنید' : 'کلیک برای باز کردن'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Guiding Questions */}
+            {vardakResult.guiding_questions && vardakResult.guiding_questions.length > 0 && (
+              <div className="bg-indigo-50/50 border border-indigo-100/70 p-4 rounded-2xl space-y-2">
+                <span className="block text-[10px] text-indigo-800 font-black">🧠 سوالی برای تفکر عمیق‌تر</span>
+                <ul className="list-disc list-inside space-y-1 text-slate-700 text-xs font-bold leading-relaxed">
+                  {vardakResult.guiding_questions.map((q: string, idx: number) => (
+                    <li key={idx} className="pr-1">{q}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Simplistic Analogy/Code block */}
+            {vardakResult.example && (
+              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2">
+                <span className="block text-[10px] text-amber-400 font-extrabold">💡 یک شبیه‌سازی یا مثال ملموس</span>
+                <pre className="text-[10px] font-mono text-emerald-400 overflow-x-auto text-left ltr whitespace-pre-wrap leading-relaxed">
+                  {vardakResult.example}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          {/* Resizable handle - bottom left */}
+          <div
+            onMouseDown={handleModalResizeStart}
+            className="absolute bottom-0 left-0 w-5 h-5 cursor-nwse-resize flex items-end justify-start p-1"
+            title="تغییر ابعاد کادر مربی"
+          >
+            {/* Simple diagonal lines to indicate resize */}
+            <div className="w-2.5 h-2.5 border-b-2 border-l-2 border-slate-400/70" />
           </div>
         </div>
       )}
