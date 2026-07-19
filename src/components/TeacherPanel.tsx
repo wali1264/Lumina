@@ -2039,28 +2039,13 @@ export default function TeacherPanel({
                             {/* Role selector */}
                             <div className="space-y-1.5">
                               <label className="text-[10px] text-slate-500 font-bold block">امضا و سمت تصحیح‌کننده:</label>
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="flex">
                                 <button
                                   type="button"
                                   onClick={() => setGradedBy('teacher')}
-                                  className={`py-2 px-3 text-[10px] font-black rounded-lg border transition-all ${
-                                    gradedBy === 'teacher'
-                                      ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
-                                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                  }`}
+                                  className="w-full py-2 px-3 text-[10px] font-black rounded-lg border bg-slate-900 border-slate-900 text-white shadow-sm text-center"
                                 >
-                                  👨‍🏫 استاد اصلی (سعید)
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setGradedBy('assistant')}
-                                  className={`py-2 px-3 text-[10px] font-black rounded-lg border transition-all ${
-                                    gradedBy === 'assistant'
-                                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  🎓 دستیار استاد (Assistant)
+                                  👨‍🏫 استاد
                                 </button>
                               </div>
                             </div>

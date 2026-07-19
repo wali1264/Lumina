@@ -1719,7 +1719,7 @@ export default function StudentPanel({
                       <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span>تاریخ ارسال: {new Date(s.submittedAt).toLocaleDateString('fa-IR')}</span>
                         <span className="text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded font-black">
-                          ✍️ ارزیاب: {s.gradedBy === 'assistant' ? '🎓 دستیار استاد' : '👨‍🏫 استاد سعید'}
+                          ✍️ ارزیاب: {s.gradedBy === 'assistant' ? '🎓 دستیار استاد' : '👨‍🏫 استاد'}
                         </span>
                       </div>
                       {s.feedback && (
@@ -2261,7 +2261,7 @@ export default function StudentPanel({
                         <div className="flex justify-between items-center">
                           <span className="font-black text-xs text-emerald-900 flex items-center gap-1.5">
                             <CheckCircle2 size={16} className="text-emerald-600" />
-                            <span>✓ تایید نهایی کارنامه توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'}</span>
+                            <span>✓ تایید نهایی کارنامه توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'}</span>
                           </span>
                           <span className="text-[9px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-black">
                             امتیاز نهایی: {lastSub.grade} / {lastSub.maxPoints}
@@ -2282,14 +2282,14 @@ export default function StudentPanel({
                       <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 text-rose-950">
                         <div className="flex items-center justify-between">
                           <span className="font-black text-xs text-rose-900 flex items-center gap-1">
-                            <span>🔁 درخواست تلاش مجدد (Try Again) - توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'}</span>
+                            <span>🔁 درخواست تلاش مجدد (Try Again) - توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'}</span>
                           </span>
                           <span className="text-[8px] bg-rose-200 text-rose-950 px-2 py-0.5 rounded-full font-black">
                             {lastSub.gradedBy === 'assistant' ? 'دستیار کلاس' : 'مدرس کلاس'}
                           </span>
                         </div>
                         <p className="text-[10px] font-semibold leading-relaxed">
-                          {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'} پاسخ قبلی شما را ارزیابی کرده و درخواست اصلاح یا تکمیل پاسخ‌ها را داده‌اند. نمره قبلی ثبت‌شده: {lastSub.grade} از {lastSub.maxPoints} امتیاز.
+                          {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'} پاسخ قبلی شما را ارزیابی کرده و درخواست اصلاح یا تکمیل پاسخ‌ها را داده‌اند. نمره قبلی ثبت‌شده: {lastSub.grade} از {lastSub.maxPoints} امتیاز.
                         </p>
                         {lastSub.feedback && (
                           <div className="p-2.5 bg-white rounded-xl border border-rose-150 text-[11px] text-slate-800 font-semibold leading-relaxed">
@@ -2471,7 +2471,7 @@ export default function StudentPanel({
                   const activeCourse = courses.find(c => c.id === activeLesson.courseId);
                   const courseTeacherId = activeCourse?.teacherId || 'teacher_1';
                   const teacherUser = users.find(u => u.id === courseTeacherId);
-                  const teacherName = teacherUser ? teacherUser.name : 'استاد سعید';
+                  const teacherName = teacherUser ? teacherUser.name : 'استاد';
                   const teacherRole = teacherUser?.role === 'teacher' ? 'مدرس ارشد دوره' : 'مربی کلاسی';
 
                   const myConversations = directMessages.filter(msg => 
