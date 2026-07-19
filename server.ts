@@ -158,8 +158,8 @@ async function executeWithGeminiPool<T>(
       
       console.error(`[GeminiKeyPool] Error with key ${keyItem.envName}:`, errorMessage, `Status: ${statusCode}`);
 
-      // Blacklist key temporarily (e.g. for 5 minutes)
-      const cooldownMinutes = 5;
+      // Blacklist key temporarily (e.g. for 1 minute)
+      const cooldownMinutes = 1;
       keyItem.blacklistedUntil = Date.now() + cooldownMinutes * 60 * 1000;
       console.warn(`[GeminiKeyPool] Key ${keyItem.envName} blacklisted for ${cooldownMinutes} minutes.`);
 
@@ -190,6 +190,18 @@ function getGeminiClient(): GoogleGenAI {
     clientOptions.baseUrl = baseUrl;
   }
   return new GoogleGenAI(clientOptions);
+}
+
+function parseDataUri(value: string): { mimeType: string; data: string } | null {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^data:([^;]+);base64,(.+)$/);
+  if (match) {
+    return {
+      mimeType: match[1],
+      data: match[2]
+    };
+  }
+  return null;
 }
 
 const app = express();
@@ -519,150 +531,45 @@ app.use(express.json({ limit: "20mb" }));
   }
 
   function getSimulatedCourseReview(course: any): string {
-    return `### 🌟 گزارش ارزیابی برنامه درسی هوش مصنوعی (Syllabus & Course Review)
-
-**وضعیت کلی دوره**: 🌟🌟🌟🌟🌟 **عالی و منسجم**
-
-دوره آموزشی «**${course?.title || "دوره فعلی"}**» با سرفصل‌های منسجم و رویکردی مهندسی‌شده طراحی شده است. گزارش ارزیابی ساختاری به شرح زیر است:
-
-#### 1. انسجام سرفصل‌ها و همبستگی دروس:
-- سیر آموزشی دوره بسیار منطقی است. درس‌ها پله‌پله از سطوح ساده به مفاهیم پیشرفته و چالش‌های تعاملی حرکت می‌کنند.
-- تفکیک مطالب و دسته‌بندی موضوعی کاملاً استاندارد است.
-
-#### 2. تنوع و کاربردی بودن تکالیف:
-- استفاده از روش‌های متنوع ثبت تکلیف (کدنویسی، ضبط صدا، ارسال عکس یادداشت دستی و آدرس پروژه) یکی از بزرگ‌ترین نقاط قوت این دوره است که انگیزه یادگیری را دوچندان می‌کند.
-
-#### 3. پیشنهادات تکمیلی برای ارتقای دوره:
-- **درس پیشنهادی 1**: *طراحی پیشرفته انیمیشن‌ها با Motion (سایه‌ها، هاور کارت‌ها و ترنزیشن‌های تعاملی)*
-- **درس پیشنهادی 2**: *استفاده از هوش مصنوعی مولد در تسریع کدنویسی و دیباگ هوشمند خطاهای Tailwind*
-
-تلاش و سلیقه شما در طراحی این دوره بی‌نظیر است. خسته نباشید! 🎓✨`;
+    return "سرویس ارزیابی هوشمند برنامه درسی هم‌اکنون غیرفعال است.";
   }
 
-  // 1. Live status check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "healthy", timestamp: new Date().toISOString() });
-  });
-
-  // 1.5. Secure & Smart Gemini API Reverse Proxy Route (for local clients & distributed routing)
-  app.all("/api/ai/proxy*", async (req, res) => {
-    try {
-      const prefix = "/api/ai/proxy";
-      let subPath = req.originalUrl || req.url;
-      if (subPath.startsWith(prefix)) {
-        subPath = subPath.slice(prefix.length);
-      }
-      if (!subPath.startsWith("/")) {
-        subPath = "/" + subPath;
-      }
-
-      // If they call the base endpoint without subPath, return a helpful status
-      if (subPath === "/" || subPath === "") {
-        return res.json({
-          status: "active",
-          service: "Lumina Academy Gemini Proxy Gateway",
-          availableKeys: geminiKeyPool.length,
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const targetUrl = `https://generativelanguage.googleapis.com${subPath}`;
-      console.log(`[Gemini Proxy] Forwarding request to: ${targetUrl}`);
-
-      // Copy headers, avoiding host/connection mismatches
-      const headers = new Headers();
-      for (const [key, val] of Object.entries(req.headers)) {
-        if (!val) continue;
-        const lowerKey = key.toLowerCase();
-        if (
-          lowerKey === "host" ||
-          lowerKey === "connection" ||
-          lowerKey === "content-length" ||
-          lowerKey === "accept-encoding"
-        ) {
-          continue;
-        }
-        if (Array.isArray(val)) {
-          val.forEach(v => headers.append(key, v));
-        } else {
-          headers.set(key, val as string);
-        }
-      }
-
-      // Check if the request contains an API key
-      let hasApiKey = headers.has("x-goog-api-key") || req.query.key;
-      if (!hasApiKey) {
-        // If not sent, dynamically supply a healthy key from our key pool!
-        const healthyKey = getEffectiveGeminiKey();
-        if (healthyKey) {
-          headers.set("x-goog-api-key", healthyKey);
-          console.log("[Gemini Proxy] Key omitted by client. Injected healthy key from server Key Pool.");
-        }
-      }
-
-      const fetchOptions: RequestInit = {
-        method: req.method,
-        headers,
-      };
-
-      if (["POST", "PUT", "PATCH"].includes(req.method)) {
-        if (req.body && Object.keys(req.body).length > 0) {
-          fetchOptions.body = JSON.stringify(req.body);
-          headers.set("Content-Type", "application/json");
-        }
-      }
-
-      const response = await fetch(targetUrl, fetchOptions);
-
-      // Set the response status
-      res.status(response.status);
-
-      // Copy response headers (excluding chunked / compress mismatch headers)
-      response.headers.forEach((value, name) => {
-        const lowerName = name.toLowerCase();
-        if (
-          lowerName !== "transfer-encoding" &&
-          lowerName !== "content-encoding" &&
-          lowerName !== "connection"
-        ) {
-          res.setHeader(name, value);
-        }
-      });
-
-      // Stream the response body back
-      const responseBody = await response.arrayBuffer();
-      res.send(Buffer.from(responseBody));
-    } catch (error: any) {
-      console.error("[Gemini Proxy] Error proxying request:", error);
-      res.status(500).json({
-        error: "Gemini Proxy Error",
-        message: error.message || String(error)
-      });
-    }
-  });
-
-  // 2. AI Code & Submission Review
+  // 2. AI Smart Review / Evaluation (Multi-layer analysis)
   app.post("/api/ai/review", async (req, res) => {
     try {
       const { lesson, studentName, answers } = req.body;
-      if (!lesson || !answers) {
-        return res.status(400).json({ error: "اطلاعات درس و پاسخ‌ها الزامی است." });
+      if (!lesson || !answers || !Array.isArray(answers)) {
+        return res.status(400).json({ error: "اطلاعات درس یا پاسخ‌ها به طور کامل ارسال نشده است." });
       }
 
-      // 1. If key is missing or is placeholder, return error
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Rejecting request.");
         return res.status(503).json({
-          error: "برقراری ارتباط با سرویس ارزیابی هوشمند مقدور نمی‌باشد. لطفاً اتصال به سرور یا کلید ارتباطی (API) مربوطه را بررسی نمایید."
+          error: "سرویس هوش مصنوعی به دلیل عدم اتصال یا عدم تنظیم کلید API در دسترس نیست. لطفاً کلید API را پیکربندی نمایید."
         });
       }
 
-      // 2. Attempt real Gemini call
       try {
+        const multimodalParts: any[] = [];
         const formattedAnswers = answers.map((ans: any) => {
           const question = lesson.questions?.find((q: any) => q.id === ans.questionId);
           const questionText = question ? `${question.title}: ${question.description}` : "سوال ناشناخته";
+          
+          const parsedMedia = parseDataUri(ans.value);
+          if (parsedMedia) {
+            multimodalParts.push({
+              inlineData: {
+                mimeType: parsedMedia.mimeType,
+                data: parsedMedia.data
+              }
+            });
+            return `
+سوال: ${questionText}
+روش پاسخ تعیین شده: ${ans.answerType}
+پاسخ دانش‌آموز: [یک فایل چندرسانه‌ای ضمیمه‌شده به عنوان پاسخ این چالش با نوع "${ans.answerType}" که به صورت باینری برای تو ارسال شده است. لطفاً آن را مستقیماً ارزیابی و تحلیل کن]
+-------------------------`;
+          }
+
           return `
 سوال: ${questionText}
 روش پاسخ تعیین شده: ${ans.answerType}
@@ -703,7 +610,7 @@ ${formattedAnswers}
 نمره نهایی (Grade): مجموع امتیازهای بالا (عددی بین 0 تا 100).
 
 مرحله ۳: تشخیص آموزشی (Learning Diagnosis)
-- نقاط قوت علمی دانشجو در این پاسخ‌ها چیست؟
+- نقاط قوت علمی دانشجو در این پاسخ‌ها چیست？
 - نقاط ضعف بنیادین یا خطاهای جزئی او کجاست؟ (تشخیص بده که آیا اشتباه دانشجو ناشی از عدم درک مفهوم است یا یک خطای سهوی در اجرا).
 - گام آموزشی بعدی پیشنهادی برای رشد بیشتر دانشجو چیست؟
 
@@ -728,7 +635,7 @@ ${formattedAnswers}
 
 قالب خروجی باید کاملاً معتبر و در قالب JSON با کلیدهای زیر باشد:
 - grade: نمره نهایی کلی دانش‌آموز بر اساس Rubric به عنوان یک عدد صحیح (بین 0 تا 100)
-- teacherFeedback: بازخورد تحلیلی، فنی و تشخیصی مخصوص مدرس با رعایت تمام موارد ذکر شده (فرمت Markdown به زبان فارسی روان)
+- teacherFeedback: بازخورد تحلیلی، فنی و تشخصیص مخصوص مدرس با رعایت تمام موارد ذکر شده (فرمت Markdown به زبان فارسی روان)
 - studentFeedback: پیش‌نویس بازخورد صمیمی، انگیزشی و سرنخ‌محور مخصوص دانشجو جهت خوداصلاحی (فرمت Markdown به زبان فارسی روان)
 `;
 
@@ -736,7 +643,12 @@ ${formattedAnswers}
           console.log(`[Gemini API] Running Multi-Layer AI review with key: ${keyName}`);
           const response = await client.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: prompt,
+            contents: {
+              parts: [
+                { text: prompt },
+                ...multimodalParts
+              ]
+            },
             config: {
               responseMimeType: "application/json",
               responseSchema: {
@@ -782,12 +694,12 @@ ${formattedAnswers}
         return res.status(400).json({ error: "لیست پیام‌ها ارسال نشده است." });
       }
 
-      // 1. If key is missing or is placeholder, fallback to simulator
+      // 1. If key is missing or is placeholder, return 503
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Using smart simulated AI chatbot.");
-        const reply = getSimulatedAiChat(lesson, currentCode, messages, lastSubmission, lessonContent);
-        return res.json({ reply });
+        return res.status(503).json({
+          error: "سرویس گفتگو با مربی هوشمند به دلیل عدم تنظیم کلید API یا قطعی اتصال موقتاً غیرفعال است. لطفاً کلید API را پیکربندی نمایید تا مربی فعال شود."
+        });
       }
 
       // 2. Attempt real Gemini call
@@ -877,9 +789,10 @@ ${formattedAnswers}
 
         return res.json({ reply: replyText });
       } catch (innerErr: any) {
-        console.error("Real Gemini Chat failed, falling back to simulator:", innerErr);
-        const reply = getSimulatedAiChat(lesson, currentCode, messages, lastSubmission);
-        return res.json({ reply });
+        console.error("Real Gemini Chat failed:", innerErr);
+        return res.status(503).json({
+          error: "برقراری ارتباط با مربی هوشمند کلاسی امکان‌پذیر نیست. لطفاً اتصال اینترنت یا اعتبار کلید API خود را بررسی کنید."
+        });
       }
     } catch (error: any) {
       console.error("AI Chat wrapper error:", error);
@@ -895,12 +808,12 @@ ${formattedAnswers}
         return res.status(400).json({ error: "موضوع درس ارسال نشده است." });
       }
 
-      // 1. If key is missing or invalid, fallback to simulator
+      // 1. If key is missing or invalid, return 503
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Using smart simulated lesson generator.");
-        const simulatedLesson = getSimulatedGeneratedLesson(topic, gradeLevel);
-        return res.json(simulatedLesson);
+        return res.status(503).json({
+          error: "طراحی درس هوشمند به دلیل عدم پیکربندی کلید API در دسترس نیست. لطفاً ابتدا کلید API خود را تنظیم کنید."
+        });
       }
 
       const prompt = `
@@ -980,12 +893,12 @@ ${formattedAnswers}
         return res.status(400).json({ error: "اطلاعات درس فعلی الزامی است." });
       }
 
-      // 1. If key is missing or invalid, fallback to simulator
+      // 1. If key is missing or invalid, return 503
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Using smart simulated peer reviewer.");
-        const simulatedFeedback = getSimulatedPeerReview(currentLesson);
-        return res.json({ feedback: simulatedFeedback });
+        return res.status(503).json({
+          error: "ارزیابی همتای هوشمند به دلیل عدم تنظیم کلید API در دسترس نیست. لطفاً ابتدا کلید API را پیکربندی نمایید."
+        });
       }
 
       const formattedPrev = (previousLessons || []).map((l: any, i: number) => {
@@ -1047,12 +960,12 @@ ${formattedPrev || "درسی قبلاً ثبت نشده است."}
         return res.status(400).json({ error: "اطلاعات دوره الزامی است." });
       }
 
-      // 1. If key is missing or invalid, fallback to simulator
+      // 1. If key is missing or invalid, return 503
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Using smart simulated course reviewer.");
-        const simulatedReview = getSimulatedCourseReview(course);
-        return res.json({ feedback: simulatedReview });
+        return res.status(503).json({
+          error: "ارزیابی ساختار دوره هوشمند به دلیل عدم تنظیم کلید API در دسترس نیست. لطفاً ابتدا کلید API را پیکربندی نمایید."
+        });
       }
 
       const lessonsText = (courseLessons || []).map((l: any, i: number) => {
@@ -1116,21 +1029,9 @@ ${lessonsText || "هنوز درسی برای این دوره تعریف نشده
 
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Using simulated challenge generator.");
-        const simulatedChallenges = [];
-        const basePoints = Math.floor(100 / parsedCount);
-        const remainder = 100 - (basePoints * parsedCount);
-
-        for (let i = 0; i < parsedCount; i++) {
-          const pts = i === 0 ? basePoints + remainder : basePoints;
-          simulatedChallenges.push({
-            title: `چالش شبیه‌سازی شده شماره ${i + 1}`,
-            description: `بر اساس متن درس‌نامه، لطفاً به این سوال پاسخ دهید: مفهوم کلیدی شماره ${i + 1} چیست و چه کاربردی دارد؟`,
-            answerType: "text",
-            points: pts
-          });
-        }
-        return res.json({ questions: simulatedChallenges });
+        return res.status(503).json({
+          error: "تولید خودکار چالش‌ها به دلیل عدم تنظیم کلید API در دسترس نیست. لطفاً ابتدا کلید API را پیکربندی نمایید."
+        });
       }
 
       const prompt = `
@@ -1229,21 +1130,8 @@ ${content}
 
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Using simulated Vardak mentor.");
-        return res.json({
-          emotion: "🦆",
-          concept: "مفهوم انتخاب‌شده در درس",
-          message: `سلام دوست من! من وردک (مربی سقراطی لومینا) هستم. به نظر می‌رسه روی این بخش تمرکز کردی: "${selectedText.substring(0, 60)}...". بیا با هم بررسی کنیم که هدف اصلی این بخش چیه و چطور می‌تونی اون رو درک کنی. این مفهوم به ما کمک می‌کنه کارهای تکراری یا سخت رو خیلی راحت انجام بدیم.`,
-          hints: [
-            "به این فکر کن که در زندگی واقعی چطور اطلاعات یا مقادیر رو دسته‌بندی می‌کنی؟",
-            "اگر بخواهیم این کار را چندین بار تکرار کنیم، چه ساختاری منطقی‌تر است؟",
-            "یک بار دیگر به ورودی‌ها و خروجی‌های این بخش از کد یا متن دقت کن."
-          ],
-          guiding_questions: [
-            "اگر این خط وجود نداشت، چه مشکلی در اجرای برنامه پیش می‌آمد؟",
-            "تفاوت اصلی این رویکرد با روش‌های دستی ساده‌تر چیست؟"
-          ],
-          example: "// به عنوان مثال:\nconst name = 'Lumina';\nconsole.log('خوش آمدید به ' + name);"
+        return res.status(503).json({
+          error: "مربی سقراطی وردک به دلیل عدم تنظیم کلید API یا قطعی اتصال در دسترس نیست. لطفاً کلید API را پیکربندی نمایید."
         });
       }
 
@@ -1337,10 +1225,8 @@ ${selectedText}
 
       const activeKey = getEffectiveGeminiKey();
       if (!activeKey) {
-        console.warn("GEMINI_API_KEY is missing or invalid. Using simulated Socratic chat response.");
-        return res.json({
-          emotion: "🦆",
-          reply: `سلام دوست پرتلاشم! من مربی سقراطی تو، وردک هستم. در مورد "${message.substring(0, 40)}" پرسیدی. بیا با یک سوال شروع کنیم: به نظرت هدف اصلی این موضوع در زندگی روزمره ما چیست و چطور می‌توانیم آن را ساده‌سازی کنیم؟`
+        return res.status(503).json({
+          error: "سرویس پیام‌رسانی وردک مربی سقراطی به دلیل عدم تنظیم کلید API در دسترس نیست. لطفاً ابتدا کلید API را پیکربندی نمایید."
         });
       }
 

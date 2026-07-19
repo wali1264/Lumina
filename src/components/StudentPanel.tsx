@@ -1824,22 +1824,8 @@ export default function StudentPanel({
             {/* Textbook Column */}
             <div className={`flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-white ${activeLessonTab === 'textbook' ? 'block' : 'hidden'}`}>
               
-              {/* Back to dashboard & Media/Explanation Controls */}
-              <div className="flex items-center justify-between flex-wrap gap-4 pb-3 border-b border-slate-100">
-                <button
-                  onClick={() => {
-                    if (isPlayingExplanation) {
-                      audioExplanationRef.current?.pause();
-                      setIsPlayingExplanation(false);
-                    }
-                    setShowDashboard(true);
-                  }}
-                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-900 transition font-bold"
-                >
-                  <ArrowLeft size={12} className="transform rotate-180" />
-                  <span>بازگشت به کارنامه و نقشه راه</span>
-                </button>
-
+              {/* Media/Explanation Controls */}
+              <div className="flex items-center justify-end flex-wrap gap-4 pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   {/* Side-by-side Socratic AI Mentor buttons */}
                   <div className="flex items-center gap-1.5">

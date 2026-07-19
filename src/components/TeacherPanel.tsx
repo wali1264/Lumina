@@ -1180,7 +1180,7 @@ export default function TeacherPanel({
                   <h3 className="text-xs font-black text-rose-950">هشدارهای یادگیری هوش مصنوعی (دانش‌آموزان ضعیف)</h3>
                 </div>
                 <p className="text-[10px] text-rose-900/80 leading-relaxed font-semibold">
-                  مدل هوشمند Gemini بر اساس تحلیل خطاها، تعداد ارسال‌های ناموفق و بن‌بست‌های یادگیری، هنرجویان زیر را ضعیف ارزیابی کرده و نیاز به توجه یا پیگیری دستی شما را تشخیص داده است:
+                  تحلیل هوش مصنوعی بر اساس خطاها، تعداد ارسال‌های ناموفق و بن‌بست‌های یادگیری، هنرجویان زیر را ضعیف ارزیابی کرده و نیاز به توجه یا پیگیری دستی شما را تشخیص داده است:
                 </p>
 
                 <div className="space-y-3">
@@ -1688,7 +1688,7 @@ export default function TeacherPanel({
                     {isCourseReviewing ? (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4">
                         <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-xs text-slate-500 font-extrabold">مربی هوش مصنوعی Gemini در حال کاوش عمیق سرفصل‌ها و اهداف دوره شماست...</p>
+                        <p className="text-xs text-slate-500 font-extrabold">تحلیل هوش مصنوعی در حال کاوش عمیق سرفصل‌ها و اهداف دوره شماست...</p>
                       </div>
                     ) : (
                       <div className="prose prose-sm max-w-none text-slate-800 leading-relaxed font-semibold">
@@ -2003,7 +2003,7 @@ export default function TeacherPanel({
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-1.5">
                               <Sparkles size={16} className="text-indigo-600" />
-                              <h4 className="text-xs font-black text-indigo-950">تحلیل ارزیابی هوش مصنوعی (Gemini-3.5)</h4>
+                              <h4 className="text-xs font-black text-indigo-950">تحلیل هوش مصنوعی</h4>
                             </div>
                             <button
                               onClick={() => handleRequestAiReview(sub)}
