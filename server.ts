@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
-import nodemailer from "nodemailer";
 
 dotenv.config();
 
@@ -1379,93 +1378,6 @@ ${message}
       console.error("Vardak Socratic Chat error:", error);
       res.status(500).json({ error: error.message || "خطا در ارتباط با مربی سقراطی هوش مصنوعی" });
     }
-  });
-
-  // --- Outbound Email dispatch and auditing logs endpoint ---
-  const emailLogs: Array<{
-    id: string;
-    to: string;
-    subject: string;
-    html: string;
-    timestamp: string;
-    status: "success" | "simulated" | "failed";
-    error?: string;
-  }> = [];
-
-  app.post("/api/email/send", async (req, res) => {
-    const { to, subject, html } = req.body;
-    if (!to || !subject || !html) {
-      return res.status(400).json({ error: "فیلدهای گیرنده، موضوع و محتوای ایمیل الزامی هستند." });
-    }
-
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpPort = process.env.SMTP_PORT;
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS;
-    const smtpFrom = process.env.SMTP_FROM || "no-reply@aiacademy.ir";
-
-    const emailId = "msg_" + Math.random().toString(36).substring(2, 11);
-    const logItem: {
-      id: string;
-      to: string;
-      subject: string;
-      html: string;
-      timestamp: string;
-      status: "success" | "simulated" | "failed";
-      error?: string;
-    } = {
-      id: emailId,
-      to,
-      subject,
-      html,
-      timestamp: new Date().toISOString(),
-      status: "simulated",
-    };
-
-    if (smtpHost && smtpUser && smtpPass) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: Number(smtpPort) || 587,
-          secure: smtpPort === "465",
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
-          },
-        });
-
-        await transporter.sendMail({
-          from: smtpFrom,
-          to,
-          subject,
-          html,
-        });
-
-        logItem.status = "success";
-        emailLogs.push(logItem);
-        console.log(`[SMTP Mail] Real email sent successfully to ${to} (Subject: ${subject})`);
-        return res.json({ success: true, status: "sent", id: emailId });
-      } catch (err: any) {
-        console.error("[SMTP Mail] Failed to send real email via SMTP:", err);
-        logItem.status = "failed";
-        logItem.error = err.message || String(err);
-        emailLogs.push(logItem);
-        return res.json({ 
-          success: true, 
-          status: "simulated_fallback", 
-          id: emailId, 
-          warning: `SMTP error: ${err.message}. Simulating successful dispatch for development.` 
-        });
-      }
-    } else {
-      emailLogs.push(logItem);
-      console.log(`[SMTP Mail] Simulated email logged to ${to} (Subject: ${subject})`);
-      return res.json({ success: true, status: "simulated", id: emailId });
-    }
-  });
-
-  app.get("/api/email/logs", (req, res) => {
-    res.json({ logs: emailLogs });
   });
 
   // --- Vite & Production Static File Serving Middleware ---

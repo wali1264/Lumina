@@ -5,7 +5,7 @@ import {
   Clock, Check, X, ShieldAlert, BookMarked, Eye, LayoutGrid, Image as ImageIcon,
   Flame, HelpCircle, FileText, Code, ArrowLeft, ChevronLeft, ChevronRight, Bell,
   VolumeX, Youtube, Tv, Download, GraduationCap, CheckSquare, Paperclip, File, Trash2, Star,
-  RotateCw, MessageSquare, ZoomIn, ZoomOut, Maximize2, Minimize2
+  RotateCw, MessageSquare
 } from 'lucide-react';
 import { User as UserType, Lesson, Submission, Question, ChatMessage, AnswerType, Course, CourseEnrollment, LessonImage, DirectMessage, Rating } from '../types';
 import DrawingCanvas from './DrawingCanvas';
@@ -139,8 +139,6 @@ export default function StudentPanel({
   const [activeLessonTab, setActiveLessonTab] = useState<'textbook' | 'challenges' | 'teacher_chat'>('textbook');
   const [showDashboard, setShowDashboard] = useState(true);
   const [showTeacherText, setShowTeacherText] = useState(false);
-  const [isTextbookFullscreen, setIsTextbookFullscreen] = useState(false);
-  const [textbookZoomLevel, setTextbookZoomLevel] = useState(100);
 
   // Star Rating system states
   const [ratingModalCourse, setRatingModalCourse] = useState<Course | null>(null);
@@ -190,7 +188,7 @@ export default function StudentPanel({
     audioUrl?: string;
     pdf?: { name: string; size: string; url: string };
   }[]>([
-    { sender: 'vardak', text: 'سلام دوست خوبم! من مربی راهنمای تو هستم. هر کجای درس رو متوجه نشدی یا سوالی داری بگو تا با هم گام‌به‌گام بررسی کنیم و یادش بگیریم! 😊', emotion: '💡' }
+    { sender: 'vardak', text: 'سلام دوست خوبم! من مربی سقراطی تو، وردک هستم. هر کجای درس رو متوجه نشدی یا سوالی داری بگو تا قدم‌به‌قدم با هم حلش کنیم! 🦆', emotion: '🦆' }
   ]);
   const [vardakChatInput, setVardakChatInput] = useState('');
   const [isVardakChatLoading, setIsVardakChatLoading] = useState(false);
@@ -213,7 +211,6 @@ export default function StudentPanel({
   const [isVardakModalResizing, setIsVardakModalResizing] = useState(false);
   const [isVardakChatDragging, setIsVardakChatDragging] = useState(false);
   const [isGuidanceFullscreen, setIsGuidanceFullscreen] = useState(false);
-  const [guidanceZoom, setGuidanceZoom] = useState(100);
   const [vardakChatPos, setVardakChatPos] = useState({
     x: typeof window !== 'undefined' ? Math.max(20, window.innerWidth - 440) : 800,
     y: 120
@@ -391,7 +388,7 @@ export default function StudentPanel({
       const userMsgLower = userMsg.toLowerCase();
       if (userMsgLower.includes('جزوه') || userMsgLower.includes('pdf') || userMsgLower.includes('فایل')) {
         mentorMsg.pdf = {
-          name: 'تکنیک‌های عملی توازن و کنتراست بصری در طراحی - مربی راهنما.pdf',
+          name: 'تکنیک‌های عملی توازن و کنتراست بصری در طراحی - مربی وردک.pdf',
           size: '1.2 MB',
           url: '#'
         };
@@ -1722,7 +1719,7 @@ export default function StudentPanel({
                       <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span>تاریخ ارسال: {new Date(s.submittedAt).toLocaleDateString('fa-IR')}</span>
                         <span className="text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded font-black">
-                          ✍️ ارزیاب: {s.gradedBy === 'assistant' ? '🎓 دستیار استاد' : '👨‍🏫 استاد'}
+                          ✍️ ارزیاب: {s.gradedBy === 'assistant' ? '🎓 دستیار استاد' : '👨‍🏫 استاد سعید'}
                         </span>
                       </div>
                       {s.feedback && (
@@ -1825,16 +1822,7 @@ export default function StudentPanel({
             </div>
 
             {/* Textbook Column */}
-            <div 
-              className={`flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-white ${
-                activeLessonTab === 'textbook' ? 'block' : 'hidden'
-              } ${
-                isTextbookFullscreen 
-                  ? 'fixed inset-0 z-40 p-6 md:p-12 overflow-y-auto bg-white' 
-                  : ''
-              }`}
-              style={{ fontSize: `${textbookZoomLevel}%` }}
-            >
+            <div className={`flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-white ${activeLessonTab === 'textbook' ? 'block' : 'hidden'}`}>
               
               {/* Back to dashboard & Media/Explanation Controls */}
               <div className="flex items-center justify-between flex-wrap gap-4 pb-3 border-b border-slate-100">
@@ -1843,9 +1831,6 @@ export default function StudentPanel({
                     if (isPlayingExplanation) {
                       audioExplanationRef.current?.pause();
                       setIsPlayingExplanation(false);
-                    }
-                    if (isTextbookFullscreen) {
-                      setIsTextbookFullscreen(false);
                     }
                     setShowDashboard(true);
                   }}
@@ -1856,38 +1841,6 @@ export default function StudentPanel({
                 </button>
 
                 <div className="flex items-center gap-2">
-                  {/* Zoom & Fullscreen controls */}
-                  <div className="flex items-center gap-1 border-l border-slate-200 pl-2.5 ml-1 select-none">
-                    <button
-                      onClick={() => setTextbookZoomLevel(prev => Math.max(80, prev - 10))}
-                      className="p-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition cursor-pointer flex items-center justify-center"
-                      title="کوچک‌نمایی متن"
-                    >
-                      <ZoomOut size={13} />
-                    </button>
-                    <span className="text-[10px] font-mono font-bold text-slate-600 px-1 min-w-[32px] text-center">
-                      {textbookZoomLevel}%
-                    </span>
-                    <button
-                      onClick={() => setTextbookZoomLevel(prev => Math.min(200, prev + 10))}
-                      className="p-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition cursor-pointer flex items-center justify-center"
-                      title="بزرگ‌نمایی متن"
-                    >
-                      <ZoomIn size={13} />
-                    </button>
-
-                    <button
-                      onClick={() => setIsTextbookFullscreen(!isTextbookFullscreen)}
-                      className="p-1.5 rounded-xl bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-800 transition cursor-pointer flex items-center justify-center gap-1"
-                      title={isTextbookFullscreen ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه کردن جزوه'}
-                    >
-                      {isTextbookFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                      <span className="text-[9px] font-black hidden sm:inline">
-                        {isTextbookFullscreen ? 'خروج' : 'تمام‌صفحه'}
-                      </span>
-                    </button>
-                  </div>
-
                   {/* Side-by-side Socratic AI Mentor buttons */}
                   <div className="flex items-center gap-1.5">
                     {/* 1. Socratic Chat Button */}
@@ -1919,12 +1872,12 @@ export default function StudentPanel({
                       }}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border transition-all shadow-sm ${
                         vardakState === 'selecting'
-                          ? 'bg-indigo-600 text-white border-indigo-700'
+                          ? 'bg-amber-500 text-white border-amber-600'
                           : vardakState === 'processing'
-                            ? 'bg-indigo-50 text-indigo-600 border-indigo-200 cursor-wait'
+                            ? 'bg-amber-50 text-amber-600 border-amber-300 cursor-wait'
                             : vardakState === 'answering'
                               ? 'bg-emerald-600 text-white border-emerald-700'
-                              : 'bg-white hover:bg-indigo-50/40 text-slate-700 hover:text-indigo-700 border-slate-200'
+                              : 'bg-white hover:bg-amber-50/40 text-slate-700 hover:text-amber-700 border-slate-200'
                       }`}
                       title="آموزش و راهنمایی مربی بر اساس بخش‌های انتخابی متن درس‌نامه"
                     >
@@ -1970,12 +1923,12 @@ export default function StudentPanel({
                       onClick={() => setShowTeacherText(!showTeacherText)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black border transition-all shadow-sm ${
                         showTeacherText
-                          ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
-                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-150'
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600'
+                          : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-150'
                       }`}
                       title="نمایش متن تشریح و تدریس اختصاصی استاد"
                     >
-                      <GraduationCap size={13} className={showTeacherText ? 'text-white' : 'text-indigo-600'} />
+                      <GraduationCap size={13} className={showTeacherText ? 'text-white' : 'text-amber-600'} />
                       <span>{showTeacherText ? '📖 مشاهده متن اصلی درس' : '👨‍🏫 متن تدریس استاد'}</span>
                     </button>
                   ) : (
@@ -2047,37 +2000,37 @@ export default function StudentPanel({
                 /* Teacher's text prose */
                 <div className="space-y-6 animate-fadeIn">
                   {/* Informational card */}
-                  <div className="bg-indigo-50/75 border border-indigo-200/80 rounded-2xl p-4 flex items-start gap-3 text-indigo-950">
-                    <div className="p-1.5 bg-indigo-100 rounded-xl text-indigo-700">
+                  <div className="bg-amber-50/75 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3 text-amber-900">
+                    <div className="p-1.5 bg-amber-100 rounded-xl text-amber-700">
                       <GraduationCap size={16} />
                     </div>
                     <div>
                       <h4 className="text-xs font-black">یادداشت تدریس و تشریح استاد</h4>
-                      <p className="text-[10px] text-indigo-700 font-bold mt-0.5">در این بخش، تشریح مکتوب، نکات تستی و تفاسیر مربی برای این مبحث در اختیار شماست.</p>
+                      <p className="text-[10px] text-amber-700 font-bold mt-0.5">در این بخش، تشریح مکتوب، نکات تستی و تفاسیر مربی برای این مبحث در اختیار شماست.</p>
                     </div>
                   </div>
 
-                  <article className="prose prose-slate max-w-none text-xs md:text-sm text-slate-800 leading-relaxed md:leading-loose space-y-4 font-medium whitespace-pre-line bg-indigo-50/10 p-4 md:p-6 rounded-3xl border border-slate-100/85">
+                  <article className="prose prose-slate max-w-none text-xs md:text-sm text-slate-800 leading-relaxed md:leading-loose space-y-4 font-medium whitespace-pre-line bg-amber-50/15 p-4 md:p-6 rounded-3xl border border-slate-100/85">
                     {activeLesson.teacherText ? (
                       activeLesson.teacherText.split('\n\n').map((block, idx) => {
                         const trimmed = block.trim();
                         if (trimmed.startsWith('# ')) {
-                          return <h1 key={idx} className="text-sm md:text-base font-black text-indigo-950 border-r-4 border-indigo-500 pr-2 mt-6 mb-2">{trimmed.replace('# ', '')}</h1>;
+                          return <h1 key={idx} className="text-sm md:text-base font-black text-amber-950 border-r-4 border-amber-500 pr-2 mt-6 mb-2">{trimmed.replace('# ', '')}</h1>;
                         }
                         if (trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
-                          return <h3 key={idx} className="text-xs md:text-sm font-extrabold text-indigo-950 mt-4 mb-1.5">{trimmed.replace(/###? /g, '')}</h3>;
+                          return <h3 key={idx} className="text-xs md:text-sm font-extrabold text-amber-950 mt-4 mb-1.5">{trimmed.replace(/###? /g, '')}</h3>;
                         }
                         if (trimmed.startsWith('```')) {
                           const lines = trimmed.split('\n');
                           const code = lines.slice(1, lines[lines.length - 1].startsWith('```') ? -1 : undefined).join('\n');
                           return (
-                            <div key={idx} className="bg-indigo-50/50 text-indigo-950 rounded-2xl p-4 md:p-5 font-mono text-[11px] md:text-xs border border-indigo-150 overflow-x-auto my-4 relative group shadow-sm text-justify" dir="ltr">
-                              <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-indigo-500 font-extrabold">کد برنامه (قالب فنی)</span>
-                              <pre className="whitespace-pre-wrap leading-relaxed break-all font-medium select-text">{code}</pre>
+                            <div key={idx} className="bg-slate-950 text-slate-100 rounded-xl p-3 md:p-4 font-mono text-[11px] md:text-xs overflow-x-auto my-3 relative group" dir="ltr">
+                              <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-slate-500">کد برنامه (قالب فنی)</span>
+                              <pre className="whitespace-pre leading-relaxed">{code}</pre>
                             </div>
                           );
                         }
-                        return <p key={idx} className="text-slate-700 leading-relaxed md:leading-loose text-xs md:text-sm text-justify">{trimmed}</p>;
+                        return <p key={idx} className="text-slate-700 leading-relaxed md:leading-loose text-xs md:text-sm">{trimmed}</p>;
                       })
                     ) : (
                       <p className="text-slate-400 font-bold text-center py-6">متن تدریسی برای این درس ثبت نشده است.</p>
@@ -2100,9 +2053,9 @@ export default function StudentPanel({
                         const lines = trimmed.split('\n');
                         const code = lines.slice(1, lines[lines.length - 1].startsWith('```') ? -1 : undefined).join('\n');
                         return (
-                          <div key={idx} className="bg-indigo-50/50 text-indigo-950 rounded-2xl p-4 md:p-5 font-mono text-[11px] md:text-xs border border-indigo-150 overflow-x-auto my-4 relative group shadow-sm text-justify" dir="ltr">
-                            <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-indigo-500 font-extrabold">HTML / CSS</span>
-                            <pre className="whitespace-pre-wrap leading-relaxed break-all font-medium select-text">{code}</pre>
+                          <div key={idx} className="bg-slate-950 text-slate-100 rounded-xl p-3 md:p-4 font-mono text-[11px] md:text-xs overflow-x-auto my-3 relative group" dir="ltr">
+                            <span className="absolute top-2 left-2 text-[8px] uppercase tracking-widest text-slate-500">HTML / CSS</span>
+                            <pre className="whitespace-pre leading-relaxed">{code}</pre>
                           </div>
                         );
                       }
@@ -2308,7 +2261,7 @@ export default function StudentPanel({
                         <div className="flex justify-between items-center">
                           <span className="font-black text-xs text-emerald-900 flex items-center gap-1.5">
                             <CheckCircle2 size={16} className="text-emerald-600" />
-                            <span>✓ تایید نهایی کارنامه توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'}</span>
+                            <span>✓ تایید نهایی کارنامه توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'}</span>
                           </span>
                           <span className="text-[9px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-black">
                             امتیاز نهایی: {lastSub.grade} / {lastSub.maxPoints}
@@ -2329,14 +2282,14 @@ export default function StudentPanel({
                       <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 text-rose-950">
                         <div className="flex items-center justify-between">
                           <span className="font-black text-xs text-rose-900 flex items-center gap-1">
-                            <span>🔁 درخواست تلاش مجدد (Try Again) - توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'}</span>
+                            <span>🔁 درخواست تلاش مجدد (Try Again) - توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'}</span>
                           </span>
                           <span className="text-[8px] bg-rose-200 text-rose-950 px-2 py-0.5 rounded-full font-black">
                             {lastSub.gradedBy === 'assistant' ? 'دستیار کلاس' : 'مدرس کلاس'}
                           </span>
                         </div>
                         <p className="text-[10px] font-semibold leading-relaxed">
-                          {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد'} پاسخ قبلی شما را ارزیابی کرده و درخواست اصلاح یا تکمیل پاسخ‌ها را داده‌اند. نمره قبلی ثبت‌شده: {lastSub.grade} از {lastSub.maxPoints} امتیاز.
+                          {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'استاد سعید'} پاسخ قبلی شما را ارزیابی کرده و درخواست اصلاح یا تکمیل پاسخ‌ها را داده‌اند. نمره قبلی ثبت‌شده: {lastSub.grade} از {lastSub.maxPoints} امتیاز.
                         </p>
                         {lastSub.feedback && (
                           <div className="p-2.5 bg-white rounded-xl border border-rose-150 text-[11px] text-slate-800 font-semibold leading-relaxed">
@@ -2518,7 +2471,7 @@ export default function StudentPanel({
                   const activeCourse = courses.find(c => c.id === activeLesson.courseId);
                   const courseTeacherId = activeCourse?.teacherId || 'teacher_1';
                   const teacherUser = users.find(u => u.id === courseTeacherId);
-                  const teacherName = teacherUser ? teacherUser.name : 'استاد';
+                  const teacherName = teacherUser ? teacherUser.name : 'استاد سعید';
                   const teacherRole = teacherUser?.role === 'teacher' ? 'مدرس ارشد دوره' : 'مربی کلاسی';
 
                   const myConversations = directMessages.filter(msg => 
@@ -3233,7 +3186,7 @@ export default function StudentPanel({
               <span className="text-lg">💬</span>
               <div className="text-right">
                 <span className="block text-[8px] text-indigo-600 font-extrabold uppercase tracking-widest">گفتگوی مستقیم با مربی لومینا</span>
-                <span className="text-xs font-black text-slate-900">مربی راهنمای لومینا</span>
+                <span className="text-xs font-black text-slate-900">مربی سقراطی (وردک)</span>
               </div>
             </div>
             
@@ -3471,19 +3424,19 @@ export default function StudentPanel({
               // Clear browser selection after triggering
               window.getSelection()?.removeAllRanges();
             }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-[10px] font-black shadow-lg shadow-indigo-200/50 hover:shadow-indigo-400/30 transition-all scale-100 hover:scale-105 active:scale-95 border border-indigo-700 whitespace-nowrap cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-full text-[10px] font-black shadow-lg shadow-amber-200/50 hover:shadow-amber-400/30 transition-all scale-100 hover:scale-105 active:scale-95 border border-amber-600 whitespace-nowrap cursor-pointer"
           >
-            <span>💡 دریافت راهنمایی مربی</span>
+            <span>💡 آموزش و راهنمایی سقراطی مربی</span>
           </button>
           {/* Little arrow pointing to selection */}
-          <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-indigo-600 mx-auto -mt-[1px]" />
+          <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-amber-500 mx-auto -mt-[1px]" />
         </div>
       )}
 
       {/* 4. Draggable & Resizable Floating Socratic Modal */}
       {isVardakModalOpen && vardakResult && (
         <div
-          className={`fixed z-[9999] bg-white/95 backdrop-blur-xl border-2 border-indigo-400 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 select-none hover:shadow-indigo-100/50 ${
+          className={`fixed z-[9999] bg-white/95 backdrop-blur-xl border-2 border-amber-400 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 select-none hover:shadow-amber-100/50 ${
             isGuidanceFullscreen 
               ? 'top-4 left-4 right-4 bottom-4 md:top-8 md:left-8 md:right-8 md:bottom-8' 
               : ''
@@ -3506,34 +3459,13 @@ export default function StudentPanel({
             <div className="flex items-center gap-2">
               <span className="text-lg">{vardakResult.emotion || '💡'}</span>
               <div className="text-right">
-                <span className="block text-[8px] text-indigo-600 font-extrabold uppercase tracking-widest">آموزش و راهنمایی مربی لومینا</span>
+                <span className="block text-[8px] text-amber-600 font-extrabold uppercase tracking-widest">آموزش و راهنمایی مربی لومینا</span>
                 <span className="text-xs font-black text-slate-900">{vardakResult.concept || 'مفهوم کلیدی'}</span>
               </div>
             </div>
 
             {/* Header Actions */}
             <div className="flex items-center gap-1.5" onMouseDown={(e) => e.stopPropagation()}>
-              {/* Zoom Out */}
-              <button
-                type="button"
-                onClick={() => setGuidanceZoom(prev => Math.max(80, prev - 10))}
-                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-all cursor-pointer flex items-center justify-center"
-                title="کوچک‌نمایی متن"
-              >
-                <ZoomOut size={13} />
-              </button>
-
-              {/* Zoom In */}
-              <button
-                type="button"
-                onClick={() => setGuidanceZoom(prev => Math.min(150, prev + 10))}
-                className="p-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-all cursor-pointer flex items-center justify-center"
-                title="بزرگ‌نمایی متن"
-              >
-                <ZoomIn size={13} />
-              </button>
-
-              {/* Fullscreen Toggle */}
               <button
                 type="button"
                 onClick={() => setIsGuidanceFullscreen(!isGuidanceFullscreen)}
@@ -3560,18 +3492,15 @@ export default function StudentPanel({
           </div>
 
           {/* Modal Content - Scrollable */}
-          <div 
-            className="flex-1 overflow-y-auto p-5 space-y-4 text-right"
-            style={{ fontSize: `${guidanceZoom}%` }}
-          >
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 text-right">
             {/* Captured text quotation */}
             <div className="bg-slate-50 border-r-2 border-slate-300 p-2.5 rounded-lg text-[10px] font-black text-slate-600 line-clamp-2">
               متن نشان‌شده: "{capturedText}"
             </div>
 
             {/* Socratic Primary Message */}
-            <div className="bg-indigo-50/40 border border-indigo-100/50 p-4 rounded-2xl relative">
-              <div className="absolute top-3 left-3 bg-indigo-100 text-indigo-800 text-[8px] font-black px-2 py-0.5 rounded-full">
+            <div className="bg-amber-50/60 border border-amber-100 p-4 rounded-2xl relative">
+              <div className="absolute top-3 left-3 bg-amber-100 text-amber-800 text-[8px] font-black px-2 py-0.5 rounded-full">
                 راهنمایی مربی
               </div>
               <p className="text-slate-800 text-xs leading-relaxed font-bold whitespace-pre-wrap pt-2">
@@ -3581,7 +3510,7 @@ export default function StudentPanel({
 
             {/* Collapsible Sequential Hints Section */}
             <div className="space-y-2">
-              <span className="block text-[10px] text-indigo-700 font-black">💡 سرنخ‌های گام‌به‌گام مربی (به ترتیب باز کنید)</span>
+              <span className="block text-[10px] text-amber-700 font-black">💡 سرنخ‌های گام‌به‌گام مربی (به ترتیب باز کنید)</span>
               {vardakResult.hints && vardakResult.hints.map((hint: string, idx: number) => {
                 const isRevealed = revealedHints.includes(idx);
                 const isLocked = idx > 0 && !revealedHints.includes(idx - 1);
@@ -3592,7 +3521,7 @@ export default function StudentPanel({
                       ? 'border-emerald-200 bg-emerald-50/30' 
                       : isLocked 
                         ? 'border-slate-100 bg-slate-50/50 opacity-60' 
-                        : 'border-indigo-150 bg-indigo-50/10 hover:bg-indigo-50/20'
+                        : 'border-amber-200 bg-amber-50/10 hover:bg-amber-50/20'
                   }`}>
                     {isRevealed ? (
                       <div className="p-3">
@@ -3612,7 +3541,7 @@ export default function StudentPanel({
                           }
                         }}
                         className={`w-full p-3 flex items-center justify-between text-right text-xs font-black transition-all ${
-                          isLocked ? 'cursor-not-allowed' : 'cursor-pointer text-indigo-800'
+                          isLocked ? 'cursor-not-allowed' : 'cursor-pointer text-amber-800'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -3643,8 +3572,8 @@ export default function StudentPanel({
 
             {/* Simplistic Analogy/Code block */}
             {vardakResult.example && (
-              <div className="bg-indigo-50/30 border border-indigo-150 p-4 rounded-2xl space-y-2">
-                <span className="block text-[10px] text-indigo-800 font-extrabold">💡 یک شبیه‌سازی یا مثال ملموس</span>
+              <div className="bg-amber-50/40 border border-amber-200/60 p-4 rounded-2xl space-y-2">
+                <span className="block text-[10px] text-amber-800 font-extrabold">💡 یک شبیه‌سازی یا مثال ملموس</span>
                 <div className="text-right rtl text-xs text-slate-700 leading-relaxed font-bold whitespace-pre-wrap text-justify">
                   {vardakResult.example}
                 </div>

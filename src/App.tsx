@@ -572,21 +572,6 @@ export default function App() {
     }
   };
 
-  // Outbound Email Dispatcher Utility
-  const sendEmailNotification = async (to: string, subject: string, html: string) => {
-    try {
-      const response = await fetch('/api/email/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to, subject, html }),
-      });
-      const data = await response.json();
-      console.log('[Email Dispatch] Status:', data);
-    } catch (err) {
-      console.error('[Email Dispatch] Failed to request email send:', err);
-    }
-  };
-
   // Teacher grades student submission
   const handleGradeSubmission = async (
     submissionId: string, 
@@ -609,42 +594,7 @@ export default function App() {
             gradedBy, 
             isTryAgainRequested 
           };
-          
-          dbUpdateSubmission(updated).then(() => {
-            // Send email notification upon successful grading
-            const student = users.find(u => u.id === s.studentId);
-            const studentName = student ? student.name : s.studentName;
-            const studentEmail = student ? student.email : '';
-            const lesson = lessons.find(l => l.id === s.lessonId);
-            const lessonTitle = lesson ? lesson.title : 'درس دوره لومینا';
-
-            if (studentEmail) {
-              const emailHtml = `
-                <div style="direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; padding: 25px; background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; max-width: 600px; margin: 0 auto;">
-                  <div style="background-color: #4f46e5; padding: 15px; border-radius: 8px; color: #ffffff; text-align: center; margin-bottom: 20px;">
-                    <h2 style="margin: 0; font-size: 18px;">آکادمی هوشمند لومینا</h2>
-                  </div>
-                  <p style="font-size: 14px; color: #334155;">هنرجوی گرامی، <strong>${studentName}</strong></p>
-                  <p style="font-size: 14px; color: #334155; line-height: 1.6;">تکلیف شما برای درس <strong>«${lessonTitle}»</strong> با موفقیت توسط مدرس ارزیابی و تصحیح گردید.</p>
-                  <div style="background-color: #ffffff; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
-                    <p style="margin: 5px 0; font-size: 14px;"><strong>🎯 نمره کسب‌شده:</strong> <span style="font-size: 16px; color: #4f46e5; font-weight: bold;">${grade}</span> از ${s.maxPoints} امتیاز</p>
-                    <p style="margin: 5px 0; font-size: 14px;"><strong>✍️ تصحیح‌کننده:</strong> ${gradedBy === 'assistant' ? '🎓 دستیار استاد' : '👨‍🏫 استاد ارشد'}</p>
-                    <p style="margin: 5px 0; font-size: 14px;"><strong>🔄 وضعیت مجدد:</strong> ${isTryAgainRequested ? '🔴 نیاز به تلاش مجدد و اصلاح پاسخ‌ها' : '🟢 قبولی و تایید نهایی تکلیف'}</p>
-                  </div>
-                  <div style="background-color: #f1f5f9; padding: 15px; border-radius: 8px; border-right: 4px solid #4f46e5; margin-bottom: 20px;">
-                    <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 13px; color: #1e293b;">💬 بازخورد و راهنمایی تفصیلی استاد:</p>
-                    <p style="margin: 0; font-size: 12px; color: #475569; line-height: 1.6; white-space: pre-wrap;">${feedback}</p>
-                  </div>
-                  <p style="font-size: 12px; color: #64748b; line-height: 1.6; border-top: 1px dashed #cbd5e1; padding-top: 15px; text-align: center;">این ایمیل به صورت خودکار از طرف دپارتمان آموزشی لومینا ارسال شده است.</p>
-                </div>
-              `;
-              
-              // 1. Notify the student
-              sendEmailNotification(studentEmail, `📝 کارنامه و بازخورد نهایی تکلیف شما در آکادمی هوشمند لومینا`, emailHtml);
-              // 2. CC a copy to instructor's primary contact for records
-              sendEmailNotification('raadtaxi3@gmail.com', `📝 [کپی کارنامه] ارزیابی تکلیف ${studentName} - درس ${lessonTitle}`, emailHtml);
-            }
-          }).catch(err => {
+          dbUpdateSubmission(updated).catch(err => {
             console.error('Could not sync graded submission to Supabase', err);
             alert(`خطا در ثبت نمره در سرور: ${err.message || err}`);
             setSubmissions(originalSubmissions);
@@ -669,75 +619,37 @@ export default function App() {
         const existingSub = prev[existingIdx];
         updatedSub = {
           ...existingSub,
+          // CRITICAL: Keep the existing submission ID! Do not use newSub.id, so we update the same row!
           id: existingSub.id,
           submittedAt: newSub.submittedAt,
           answers: newSub.answers,
           status: 'pending',
           attemptsCount: (existingSub.attemptsCount || 0) + 1,
           alertTeacher: newSub.alertTeacher || (existingSub.attemptsCount || 0) + 1 >= 3,
+          // Reset teacher-grading fields since it's a resubmission
           grade: undefined,
           feedback: undefined,
           gradedBy: undefined,
           isTryAgainRequested: undefined,
+          // Clear previous assistant details until new review is ready
           assistantGrade: undefined,
           assistantFeedback: undefined,
           assistantTryAgain: undefined,
           aiReview: undefined,
           studentAiFeedback: undefined,
         };
+        // Safely filter out any other duplicates from the state
         const filtered = prev.filter(
           (s) => !(s.studentId === newSub.studentId && s.lessonId === newSub.lessonId)
         );
         return [updatedSub, ...filtered];
       } else {
+        // No existing submission, insert new
         return [newSub, ...prev];
       }
     });
-
     try {
       await dbAddSubmission(updatedSub);
-      
-      // Send receipt/notification email
-      const student = users.find(u => u.id === updatedSub.studentId);
-      const studentName = student ? student.name : updatedSub.studentName;
-      const studentEmail = student ? student.email : '';
-      const lesson = lessons.find(l => l.id === updatedSub.lessonId);
-      const lessonTitle = lesson ? lesson.title : 'درس دوره لومینا';
-
-      const emailHtml = `
-        <div style="direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; padding: 25px; background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #1e293b; padding: 15px; border-radius: 8px; color: #ffffff; text-align: center; margin-bottom: 20px;">
-            <h2 style="margin: 0; font-size: 18px;">ثبت تکلیف جدید - آکادمی لومینا</h2>
-          </div>
-          <p style="font-size: 14px; color: #334155;">استاد گرامی،</p>
-          <p style="font-size: 14px; color: #334155; line-height: 1.6;">یک پاسخ جدید برای درس <strong>«${lessonTitle}»</strong> توسط دانشجو <strong>«${studentName}»</strong> ارسال شده و آماده تصحیح می‌باشد.</p>
-          <div style="background-color: #ffffff; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
-            <p style="margin: 5px 0; font-size: 13px;"><strong>👤 نام دانشجو:</strong> ${studentName}</p>
-            <p style="margin: 5px 0; font-size: 13px;"><strong>📧 ایمیل دانشجو:</strong> ${studentEmail}</p>
-            <p style="margin: 5px 0; font-size: 13px;"><strong>📅 زمان ارسال:</strong> ${new Date(updatedSub.submittedAt).toLocaleDateString('fa-IR')}</p>
-          </div>
-          <p style="font-size: 14px; color: #334155; line-height: 1.6;">لطفاً جهت بررسی پاسخ‌های ثبت‌شده و ثبت ارزیابی نهایی به پنل اساتید لومینا مراجعه نمایید.</p>
-          <p style="font-size: 12px; color: #64748b; line-height: 1.6; border-top: 1px dashed #cbd5e1; padding-top: 15px; text-align: center;">ارسال کپی پشتیبان به مسئول دپارتمان: raadtaxi3@gmail.com</p>
-        </div>
-      `;
-
-      // 1. Send receipt email to student
-      if (studentEmail) {
-        sendEmailNotification(studentEmail, `📥 تکلیف شما دریافت شد - آکادمی لومینا`, `
-          <div style="direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; padding: 25px; background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; max-width: 600px; margin: 0 auto;">
-            <div style="background-color: #4f46e5; padding: 15px; border-radius: 8px; color: #ffffff; text-align: center; margin-bottom: 20px;">
-              <h2 style="margin: 0; font-size: 18px;">تایید دریافت تکلیف</h2>
-            </div>
-            <p style="font-size: 14px; color: #334155;">دانشجوی گرامی، <strong>${studentName}</strong></p>
-            <p style="font-size: 14px; color: #334155; line-height: 1.6;">پاسخ و کدهای شما برای درس <strong>«${lessonTitle}»</strong> با موفقیت دریافت شد و در صف ارزیابی استاد قرار گرفت. به محض تصحیح برگه توسط مدرس، نمره و بازخورد استاد از طریق ایمیل به اطلاع شما خواهد رسید.</p>
-            <p style="font-size: 12px; color: #64748b; text-align: center; margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 10px;">با آرزوی موفقیت، آکادمی هوشمند لومینا</p>
-          </div>
-        `);
-      }
-      
-      // 2. Notify instructor (raadtaxi3@gmail.com)
-      sendEmailNotification('raadtaxi3@gmail.com', `📥 تکلیف جدید ارسال شد - ${studentName} - درس ${lessonTitle}`, emailHtml);
-
     } catch (err: any) {
       console.error('Could not sync submission to Supabase', err);
       alert(`خطا در ثبت و ارسال تکالیف به سرور: ${err.message || err}`);
