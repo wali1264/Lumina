@@ -95,8 +95,6 @@ export default function TeacherPanel({
   const [activeSubId, setActiveSubId] = useState<string | null>(null);
   const [manualGrade, setManualGrade] = useState<number>(0);
   const [manualFeedback, setManualFeedback] = useState('');
-  const [aiReviewResult, setAiReviewResult] = useState('');
-  const [isAiReviewing, setIsAiReviewing] = useState(false);
   const [gradedBy, setGradedBy] = useState<'teacher' | 'assistant'>('teacher');
   const [isTryAgainRequested, setIsTryAgainRequested] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -382,42 +380,8 @@ export default function TeacherPanel({
     // Pre-fill with existing human grade/feedback OR default to AI Assistant's suggested grade/feedback!
     setManualGrade(sub.grade !== undefined ? sub.grade : (sub.assistantGrade !== undefined ? sub.assistantGrade : 0));
     setManualFeedback(sub.feedback || sub.assistantFeedback || '');
-    setAiReviewResult(sub.aiReview || '');
     setGradedBy(sub.gradedBy || 'teacher');
     setIsTryAgainRequested(sub.isTryAgainRequested || false);
-  };
-
-  const handleRequestAiReview = async (sub: Submission) => {
-    setIsAiReviewing(true);
-    setAiReviewResult('');
-    try {
-      const lesson = lessons.find(l => l.id === sub.lessonId);
-      const res = await fetch('/api/ai/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lesson,
-          studentName: sub.studentName,
-          answers: sub.answers
-        })
-      });
-      const data = await res.json();
-      const feedbackText = data.teacherFeedback || data.feedback;
-      if (res.ok && feedbackText) {
-        setAiReviewResult(feedbackText);
-        setManualFeedback(feedbackText); // Directly pre-fill the final feedback text area
-        if (data.grade !== undefined) {
-          setManualGrade(data.grade); // Directly pre-fill the final grade input
-        }
-      } else {
-        alert(data.error || 'خطا در ارزیابی هوش مصنوعی');
-      }
-    } catch (e) {
-      console.error(e);
-      setAiReviewResult('خطا در اتصال به سرور هوش مصنوعی. لطفاً دوباره تلاش کنید.');
-    } finally {
-      setIsAiReviewing(false);
-    }
   };
 
   // Create lesson with AI
@@ -1998,37 +1962,6 @@ export default function TeacherPanel({
                           })}
                         </div>
 
-                        {/* AI Co-Pilot Grading Advice */}
-                        <div className="p-4 bg-indigo-50 border border-indigo-200/60 rounded-2xl space-y-3">
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-1.5">
-                              <Sparkles size={16} className="text-indigo-600" />
-                              <h4 className="text-xs font-black text-indigo-950">تحلیل هوش مصنوعی</h4>
-                            </div>
-                            <button
-                              onClick={() => handleRequestAiReview(sub)}
-                              disabled={isAiReviewing}
-                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black rounded-lg transition disabled:opacity-50"
-                            >
-                              {isAiReviewing ? 'در حال بررسی کدها...' : 'محاسبه ارزیابی هوشمند'}
-                            </button>
-                          </div>
-
-                          {aiReviewResult || sub.assistantFeedback ? (
-                            <div className="p-4 bg-white border border-indigo-100 rounded-2xl text-xs text-slate-800 leading-relaxed text-right space-y-3 prose prose-slate max-w-none">
-                              <div className="flex items-center justify-between border-b border-indigo-50 pb-2 mb-2 text-[10px] text-indigo-700 font-extrabold">
-                                <span>🤖 ارزیابی پیش‌نویس استادیار هوش مصنوعی:</span>
-                                <span>نمره پیشنهادی: {sub.assistantGrade !== undefined ? sub.assistantGrade : (sub.grade || 0)} از {sub.maxPoints}</span>
-                              </div>
-                              <ReactMarkdown>{aiReviewResult || sub.assistantFeedback || ''}</ReactMarkdown>
-                            </div>
-                          ) : (
-                            <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
-                              با زدن دکمه فوق کدهای React و جواب‌های دانش‌آموز مجدداً تحلیل شده و راهنمایی‌ها و نمره پیشنهادی هوشمند نمایش داده می‌شود.
-                            </p>
-                          )}
-                        </div>
-
                         {/* Grading Form */}
                         <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 pt-4">
                           <h4 className="text-xs font-black text-slate-850 flex items-center gap-1">
@@ -2119,7 +2052,7 @@ export default function TeacherPanel({
                                 const executeSave = () => {
                                   setIsSaving(true);
                                   setTimeout(() => {
-                                    onGradeSubmission(sub.id, manualGrade, manualFeedback, aiReviewResult, gradedBy, isTryAgainRequested);
+                                    onGradeSubmission(sub.id, manualGrade, manualFeedback, sub.aiReview || '', gradedBy, isTryAgainRequested);
                                     setIsSaving(false);
                                     setSaveSuccess(true);
                                     setTimeout(() => {
