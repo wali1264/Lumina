@@ -30,6 +30,7 @@ interface StudentPanelProps {
   onLogout: () => void;
   isLoadingDb?: boolean;
   isDbLoaded?: boolean;
+  onFetchLessonsForCourse?: (courseId: string) => Promise<void>;
 }
 
 const getYoutubeEmbedUrl = (url: string) => {
@@ -82,7 +83,8 @@ export default function StudentPanel({
   onAddRating,
   onLogout,
   isLoadingDb = false,
-  isDbLoaded = false
+  isDbLoaded = false,
+  onFetchLessonsForCourse
 }: StudentPanelProps) {
   
   // Get active lessons belonging to the student's baseline level
@@ -91,28 +93,16 @@ export default function StudentPanel({
   // States
   const [dailyLimitError, setDailyLimitError] = useState<string>('');
 
-  const [activeCourseId, setActiveCourseId] = useState<string | null>(() => {
-    // Default to the first course student is accepted to matching studentLevel
-    const myAccepted = enrollments.filter(e => {
-      if (e.studentId !== currentUser.id || e.status !== 'accepted') return false;
-      const course = courses.find(c => c.id === e.courseId);
-      return course?.level === studentLevel;
-    });
-    return myAccepted[0]?.courseId || null;
-  });
+  const [activeCourseId, setActiveCourseId] = useState<string | null>(null);
 
-  // Keep active course level synchronized with studentLevel
+  // Keep active course level synchronized with studentLevel if a course is active
   useEffect(() => {
-    const myAccepted = enrollments.filter(e => {
-      if (e.studentId !== currentUser.id || e.status !== 'accepted') return false;
-      const course = courses.find(c => c.id === e.courseId);
-      return course?.level === studentLevel;
-    });
+    if (!activeCourseId) return;
     const currentActiveCourse = courses.find(c => c.id === activeCourseId);
-    if (!currentActiveCourse || currentActiveCourse.level !== studentLevel) {
-      setActiveCourseId(myAccepted[0]?.courseId || null);
+    if (currentActiveCourse && currentActiveCourse.level !== studentLevel) {
+      setActiveCourseId(null);
     }
-  }, [studentLevel, enrollments, courses, currentUser.id, activeCourseId]);
+  }, [studentLevel, courses, activeCourseId]);
 
   const myLevelLessons = (activeCourseId 
     ? lessons.filter(l => l.courseId === activeCourseId)
@@ -139,6 +129,43 @@ export default function StudentPanel({
   const [activeLessonTab, setActiveLessonTab] = useState<'textbook' | 'challenges' | 'teacher_chat'>('textbook');
   const [showDashboard, setShowDashboard] = useState(true);
   const [showTeacherText, setShowTeacherText] = useState(false);
+
+  // Lazy loading states for course lessons
+  const [loadingCourseId, setLoadingCourseId] = useState<string | null>(null);
+  const [loadedCourseId, setLoadedCourseId] = useState<string | null>(null);
+  const [showUploadedSuccess, setShowUploadedSuccess] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (showDashboard) {
+      setLoadedCourseId(null);
+    }
+  }, [showDashboard]);
+
+  const handleUploadLessons = async (courseId: string) => {
+    setLoadingCourseId(courseId);
+    try {
+      if (onFetchLessonsForCourse) {
+        await onFetchLessonsForCourse(courseId);
+      }
+      setLoadedCourseId(courseId);
+      setShowUploadedSuccess(prev => ({ ...prev, [courseId]: true }));
+      setTimeout(() => {
+        setShowUploadedSuccess(prev => ({ ...prev, [courseId]: false }));
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to load lessons:', err);
+    } finally {
+      setLoadingCourseId(null);
+    }
+  };
+
+  const handleContinueCourse = (courseId: string, nextLessonId?: string) => {
+    setActiveCourseId(courseId);
+    if (nextLessonId) {
+      setSelectedLessonId(nextLessonId);
+    }
+    setShowDashboard(false);
+  };
 
   // Star Rating system states
   const [ratingModalCourse, setRatingModalCourse] = useState<Course | null>(null);
@@ -997,6 +1024,9 @@ export default function StudentPanel({
         setDailyLimitError('');
         lastLessonIdRef.current = activeLesson.id;
       }
+    } else if (isSameAsCurrent) {
+      // Keep initialAnswersLoadedRef in sync once client state has successfully been synced to parent/db
+      initialAnswersLoadedRef.current = initial;
     }
   }, [selectedLessonId, submissions, activeLesson, studentSubmissions, studentAnswers]);
 
@@ -1009,12 +1039,12 @@ export default function StudentPanel({
 
   const renderAnswerTypeLabel = (type: AnswerType) => {
     switch (type) {
-      case 'text': return '📝 پاسخ تشریحی متنی';
-      case 'code_editor': return '💻 کدنویسی زنده فرانت‌اند';
-      case 'handwritten_photo': return '🎨 رسم دست‌نویس روی بوم';
-      case 'notebook_photo': return '📷 تصویر دفترچه تکالیف با دوربین';
-      case 'audio_recording': return '🎙️ توضیح صوتی ضبط‌شده';
-      case 'mission_url': return '🔗 آدرس اینترنتی پروژه مستقرشده';
+      case 'text': return '📝 پاسخ تشریحی (متنی)';
+      case 'code_editor': return '💻 ادیتور کد پیشرفته';
+      case 'handwritten_photo': return '🎨 طرح دستی روی بوم (دست‌نویس شبیه‌ساز)';
+      case 'notebook_photo': return '📷 عکاسی از دفترچه با دوربین (تصویر واقعی)';
+      case 'audio_recording': return '🎙️ توضیح صوتی (ضبط صدا)';
+      case 'mission_url': return '🔗 ارسال لینک پروژه';
       default: return 'چالش عمومی';
     }
   };
@@ -1318,74 +1348,6 @@ export default function StudentPanel({
           <div className="flex items-center gap-4">
             {/* Database Sync Indicator */}
             <DbSyncIndicator isLoading={isLoadingDb} isLoaded={isDbLoaded} isHeaderInline={true} />
-
-            {/* Notification Bell */}
-            <div className="relative">
-              <button
-                onClick={() => setIsBellOpen(!isBellOpen)}
-                className="relative p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition duration-300"
-              >
-                <Bell className={`w-5 h-5 ${unreadCount > 0 ? 'animate-swing text-indigo-600 animate-pulse' : ''}`} />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full animate-pulse" />
-                )}
-              </button>
-
-              {/* Dropdown Popover */}
-              {isBellOpen && (
-                <div className="absolute left-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-fadeIn text-right">
-                  <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                    <span className="text-xs font-black text-slate-800">صندوق اعلان‌های هوشمند</span>
-                    <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-black">
-                      {unreadCount} پیام جدید
-                    </span>
-                  </div>
-
-                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
-                    {studentNotifications.map((notif) => {
-                      const isRead = readNotificationIds.includes(notif.id);
-                      return (
-                        <button
-                          key={notif.id}
-                          onClick={() => {
-                            setActiveNotification(notif);
-                            markNotificationAsRead(notif.id);
-                            setIsBellOpen(false);
-                          }}
-                          type="button"
-                          className={`w-full text-right p-3.5 hover:bg-indigo-50/30 transition duration-150 flex flex-col gap-1 ${
-                            !isRead ? 'bg-indigo-50/10' : ''
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className={`text-[10px] font-extrabold flex items-center gap-1 ${
-                              notif.type === 'teacher_approved' ? 'text-emerald-600' : notif.type === 'teacher_try_again' ? 'text-rose-600' : 'text-indigo-600'
-                            }`}>
-                              <span>{notif.title}</span>
-                            </span>
-                            {!isRead && (
-                              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-700 font-bold leading-relaxed">
-                            {notif.message}
-                          </p>
-                          <span className="text-[9px] text-slate-400 font-mono mt-0.5">
-                            {new Date(notif.date).toLocaleDateString('fa-IR')}
-                          </span>
-                        </button>
-                      );
-                    })}
-
-                    {studentNotifications.length === 0 && (
-                      <div className="p-8 text-center text-slate-400 text-xs font-semibold">
-                        🔔 هیچ اعلان جدیدی برای شما ثبت نشده است.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
@@ -1532,6 +1494,21 @@ export default function StudentPanel({
                     if (!course) return null;
                     const courseLessons = lessons.filter(l => l.courseId === course.id);
                     const isMyCourseUnlocked = isCourseUnlocked(course.id);
+                    const sortedCourseLessons = [...courseLessons].sort((a, b) => (a.order || 0) - (b.order || 0) || new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+                    const nextLesson = sortedCourseLessons.find((l, idx) => {
+                      const isFirst = idx === 0;
+                      const isPrevCompleted = isFirst || sortedCourseLessons.slice(0, idx).every(prevL => {
+                        const prevSub = submissions
+                          .filter(s => s.lessonId === prevL.id && s.studentId === currentUser.id)
+                          .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())[0];
+                        return prevSub?.status === 'reviewed' && (prevSub.gradedBy === 'teacher' || prevSub.gradedBy === 'assistant') && !prevSub.isTryAgainRequested;
+                      });
+                      const currentSub = submissions
+                        .filter(s => s.lessonId === l.id && s.studentId === currentUser.id)
+                        .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())[0];
+                      const isCompleted = currentSub?.status === 'reviewed' && (currentSub.gradedBy === 'teacher' || currentSub.gradedBy === 'assistant') && !currentSub.isTryAgainRequested;
+                      return isPrevCompleted && !isCompleted;
+                    }) || sortedCourseLessons[0];
 
                     return (
                       <div key={enroll.id} className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3 flex flex-col justify-between hover:border-slate-300 transition-all">
@@ -1590,25 +1567,74 @@ export default function StudentPanel({
                           </div>
                         )}
 
-                        <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-2 text-[9px]">
-                          <span className="text-slate-400 font-bold">تعداد کل دروس: {courseLessons.length} درس</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-3 border-t border-slate-100 mt-2 text-[9px]">
+                          <div className="flex flex-col gap-1">
+                            {loadingCourseId === course.id ? (
+                              <span className="text-amber-600 font-extrabold flex items-center gap-1">
+                                <RotateCw className="animate-spin" size={11} />
+                                <span>در حال بارگذاری درس‌ها...</span>
+                              </span>
+                            ) : loadedCourseId === course.id ? (
+                              showUploadedSuccess[course.id] ? (
+                                <span className="text-emerald-600 font-extrabold flex items-center gap-1 animate-fadeIn">
+                                  <CheckCircle2 size={12} className="text-emerald-500" />
+                                  <span>✓ درس‌ها بارگذاری شد</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 font-extrabold flex items-center gap-1 animate-fadeIn">
+                                  <BookMarked size={12} className="text-indigo-500 shrink-0" />
+                                  <span className="truncate max-w-[150px]" title={nextLesson?.title || 'پایان دوره'}>
+                                    درس بعدی: {nextLesson?.title || 'پایان دوره'}
+                                  </span>
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-slate-400 font-bold">
+                                📥 درس‌ها هنوز بارگذاری نشده‌اند
+                              </span>
+                            )}
+                          </div>
+
                           {enroll.status === 'accepted' ? (
-                            <button
-                              disabled={!isMyCourseUnlocked}
-                              onClick={() => {
-                                setActiveCourseId(course.id);
-                                setShowDashboard(false);
-                              }}
-                              className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
-                                !isMyCourseUnlocked
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                                  : activeCourseId === course.id 
-                                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-100'
-                                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                              }`}
-                            >
-                              {!isMyCourseUnlocked ? 'قفل شده' : activeCourseId === course.id ? 'ادامه مطالعه (فعال)' : 'ورود به کلاس درس'}
-                            </button>
+                            loadingCourseId === course.id ? (
+                              <button
+                                disabled
+                                className="px-3.5 py-1.5 rounded-lg text-[10px] font-black transition-all bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed flex items-center gap-1"
+                              >
+                                <RotateCw className="animate-spin" size={12} />
+                                <span>در حال بارگذاری...</span>
+                              </button>
+                            ) : loadedCourseId === course.id ? (
+                              <button
+                                disabled={!isMyCourseUnlocked}
+                                onClick={() => {
+                                  handleContinueCourse(course.id, nextLesson?.id);
+                                }}
+                                className={`px-3.5 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 shadow-sm ${
+                                  !isMyCourseUnlocked
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-100'
+                                }`}
+                              >
+                                <span>ادامه مطالعه</span>
+                                <ChevronLeft size={12} />
+                              </button>
+                            ) : (
+                              <button
+                                disabled={!isMyCourseUnlocked}
+                                onClick={() => {
+                                  handleUploadLessons(course.id);
+                                }}
+                                className={`px-3.5 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 shadow-sm ${
+                                  !isMyCourseUnlocked
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
+                                }`}
+                              >
+                                <Download size={11} />
+                                <span>بارگذاری درس‌ها</span>
+                              </button>
+                            )
                           ) : (
                             <span className="text-slate-400 font-medium">پس از تایید استاد می‌توانید وارد شوید</span>
                           )}
@@ -2221,7 +2247,7 @@ export default function StudentPanel({
                 const isPendingWaitingForAssistant = isPending && lastSub?.assistantGrade === undefined;
                 
                 const isPendingWaitingForTeacher = isPending && !lastSub?.assistantTryAgain;
-                const disabled = isCompleted;
+                const disabled = isSubmittingAnswers;
 
                 return (
                   <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 max-w-4xl mx-auto w-full" dir="rtl">
@@ -2259,7 +2285,7 @@ export default function StudentPanel({
                           </div>
                         )}
                         <p className="text-[10px] text-emerald-800 font-bold leading-relaxed bg-emerald-100/40 p-2.5 rounded-xl border border-emerald-100">
-                          🎉 این درس رسماً توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'مدرس شما'} تایید نهایی شده است و به عنوان تکلیف گذرانده شده علامت‌گذاری شد. چالش‌های این بخش قفل شده‌اند.
+                          🎉 این درس رسماً توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'مدرس شما'} تصحیح و نمره‌دهی شده است. شما می‌توانید جهت بهبود نمره خود، پاسخ‌ها را ویرایش و مجدداً ارسال کنید. با ارسال مجدد، وضعیت درس به «در انتظار بررسی» تغییر خواهد کرد.
                         </p>
                       </div>
                     )}
@@ -2413,16 +2439,7 @@ export default function StudentPanel({
                                 <span>شما امروز دو تا چالش را حل کردی و چالش‌های درس سوم را نمی‌توانی حل کنی، باید صبر کنی فردا حلش کنی</span>
                               </div>
                             )}
-                            {isCompleted ? (
-                              <button
-                                disabled
-                                className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black transition cursor-not-allowed shadow flex items-center justify-center gap-1.5"
-                              >
-                                <CheckCircle2 size={16} />
-                                <span>✓ چالش‌های این درس با موفقیت تایید و ثبت نهایی شده است</span>
-                              </button>
-                            ) : (
-                              <button
+                             <button
                                 onClick={() => {
                                   if (isDailyLimitReached) {
                                     setDailyLimitError('شما امروز دو تا چالش را حل کردی و چالش‌های درس سوم را نمی‌توانی حل کنی، باید صبر کنی فردا حلش کنی');
@@ -2431,19 +2448,20 @@ export default function StudentPanel({
                                   handleStudentSubmit(activeLesson);
                                 }}
                                 disabled={isSubmittingAnswers || isDailyLimitReached}
-                                className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black transition shadow disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                               >
                                 {isSubmittingAnswers 
                                   ? 'در حال ارسال پاسخ‌ها...' 
                                   : isPending
                                     ? 'به‌روزرسانی و ارسال مجدد پاسخ‌ها (ویرایش پاسخ قبلی)'
-                                    : isTeacherTryAgain 
-                                      ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
-                                      : lastSub?.assistantTryAgain
-                                        ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
-                                        : 'ارسال تمامی پاسخ‌ها به مدرس'}
+                                    : isCompleted
+                                      ? 'ثبت و ارسال مجدد پاسخ‌ها برای تصحیح مجدد و ارتقای نمره'
+                                      : isTeacherTryAgain 
+                                        ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
+                                        : lastSub?.assistantTryAgain
+                                          ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
+                                          : 'ارسال تمامی پاسخ‌ها به مدرس'}
                               </button>
-                            )}
                           </>
                         );
                       })()}

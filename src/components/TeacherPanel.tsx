@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { User as UserType, Lesson, Submission, Question, AnswerType, LessonImage, Course, CourseEnrollment, DirectMessage, Rating } from '../types';
 import AudioRecorder from './AudioRecorder';
-import { Paperclip, File, Download, UploadCloud, RefreshCw } from 'lucide-react';
+import { Paperclip, File, Download, UploadCloud, RefreshCw, Folder, FolderOpen, ArrowRight } from 'lucide-react';
 import DbSyncIndicator from './DbSyncIndicator';
 
 interface TeacherPanelProps {
@@ -41,6 +41,7 @@ interface TeacherPanelProps {
   isLoadingDb?: boolean;
   isDbLoaded?: boolean;
   ratings?: Rating[];
+  onFetchLessonsForCourse?: (courseId: string) => Promise<void>;
 }
 
 const compressImageBase64 = (base64Str: string, maxWidth = 1020, quality = 0.8): Promise<string> => {
@@ -195,7 +196,8 @@ export default function TeacherPanel({
   onApproveEnrollment, onApproveStudent, onUpdateStudentLevel, onGradeSubmission, onLogout,
   isLoadingDb = false,
   isDbLoaded = false,
-  ratings = []
+  ratings = [],
+  onFetchLessonsForCourse
 }: TeacherPanelProps) {
   
   // Tab control
@@ -203,6 +205,9 @@ export default function TeacherPanel({
 
   // Submissions state
   const [activeSubId, setActiveSubId] = useState<string | null>(null);
+  const [selectedFolderStudentId, setSelectedFolderStudentId] = useState<string | null>(null);
+  const [displayedSubmissionsLimit, setDisplayedSubmissionsLimit] = useState<number>(5);
+  const [folderSearchQuery, setFolderSearchQuery] = useState('');
   const [manualGrade, setManualGrade] = useState<number>(0);
   const [manualFeedback, setManualFeedback] = useState('');
   const [gradedBy, setGradedBy] = useState<'teacher' | 'assistant'>('teacher');
@@ -234,6 +239,7 @@ export default function TeacherPanel({
   const [isEditingCourse, setIsEditingCourse] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [isCreatingCourse, setIsCreatingCourse] = useState(false);
+  const [isSavingCourse, setIsSavingCourse] = useState(false);
   const [courseTitleInput, setCourseTitleInput] = useState('');
   const [courseDescInput, setCourseDescInput] = useState('');
   const [courseCategoryInput, setCourseCategoryInput] = useState('طراحی فرانت‌اند');
@@ -251,7 +257,7 @@ export default function TeacherPanel({
   const [imagePlacement, setImagePlacement] = useState<'inline' | 'gallery'>('inline');
   const [lessonModalTab, setLessonModalTab] = useState<'content' | 'images' | 'challenges' | 'audioVideo'>('content');
   const [stepImageTitle, setStepImageTitle] = useState('');
-  const [selectedCourseFilter, setSelectedCourseFilter] = useState<string>('all');
+  const [selectedCourseFilter, setSelectedCourseFilter] = useState<string>('');
   const [aiCourseId, setAiCourseId] = useState<string>('');
 
   // Backup & Import states
@@ -710,7 +716,7 @@ export default function TeacherPanel({
       setActiveTab('courses');
       return;
     }
-    const defaultCourseId = selectedCourseFilter !== 'all' && teacherCourses.some(c => c.id === selectedCourseFilter)
+    const defaultCourseId = selectedCourseFilter && teacherCourses.some(c => c.id === selectedCourseFilter)
       ? selectedCourseFilter
       : teacherCourses[0].id;
     const selectedCourse = teacherCourses.find(c => c.id === defaultCourseId) || teacherCourses[0];
@@ -1476,7 +1482,8 @@ export default function TeacherPanel({
                   </h3>
                   <button
                     onClick={() => setIsCreatingCourse(false)}
-                    className="p-1 hover:bg-slate-200 rounded-full transition text-slate-400"
+                    disabled={isSavingCourse}
+                    className="p-1 hover:bg-slate-200 rounded-full transition text-slate-400 disabled:opacity-50"
                   >
                     <X size={16} />
                   </button>
@@ -1490,7 +1497,8 @@ export default function TeacherPanel({
                       placeholder="مثلاً: مبانی برنامه‌نویسی پایتون"
                       value={courseTitleInput}
                       onChange={(e) => setCourseTitleInput(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold focus:outline-none focus:border-indigo-500"
+                      disabled={isSavingCourse}
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1500,7 +1508,8 @@ export default function TeacherPanel({
                       placeholder="مثلاً: علوم کامپیوتر، زبان انگلیسی، ریاضیات"
                       value={courseCategoryInput}
                       onChange={(e) => setCourseCategoryInput(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold focus:outline-none focus:border-indigo-500"
+                      disabled={isSavingCourse}
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1508,7 +1517,8 @@ export default function TeacherPanel({
                     <select
                       value={courseLevelInput}
                       onChange={(e) => setCourseLevelInput(e.target.value as any)}
-                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold focus:outline-none focus:border-indigo-500"
+                      disabled={isSavingCourse}
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                     >
                       <option value="beginner">مبتدی (Beginner)</option>
                       <option value="intermediate">متوسطه (Intermediate)</option>
@@ -1524,47 +1534,58 @@ export default function TeacherPanel({
                     placeholder="توضیح کوتاهی بنویسید تا دانشجویان ترغیب به ثبت‌نام شوند..."
                     value={courseDescInput}
                     onChange={(e) => setCourseDescInput(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-medium focus:outline-none focus:border-indigo-500"
+                    disabled={isSavingCourse}
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-medium focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                   />
                 </div>
 
                 <div className="flex justify-end gap-2.5 pt-2">
                   <button
                     onClick={() => setIsCreatingCourse(false)}
-                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition"
+                    disabled={isSavingCourse}
+                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     انصراف
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       if (!courseTitleInput.trim()) {
                         alert('لطفا عنوان دوره را وارد کنید.');
                         return;
                       }
-                      if (editingCourse) {
-                        onUpdateCourse({
-                          ...editingCourse,
-                          title: courseTitleInput,
-                          description: courseDescInput,
-                          category: courseCategoryInput,
-                          level: courseLevelInput,
-                        });
-                      } else {
-                        onAddCourse({
-                          id: 'c_' + Date.now(),
-                          title: courseTitleInput,
-                          description: courseDescInput,
-                          category: courseCategoryInput,
-                          level: courseLevelInput,
-                          teacherId: currentUser.id,
-                          createdAt: new Date().toISOString()
-                        });
+                      setIsSavingCourse(true);
+                      try {
+                        if (editingCourse) {
+                          await onUpdateCourse({
+                            ...editingCourse,
+                            title: courseTitleInput,
+                            description: courseDescInput,
+                            category: courseCategoryInput,
+                            level: courseLevelInput,
+                          });
+                        } else {
+                          await onAddCourse({
+                            id: 'c_' + Date.now(),
+                            title: courseTitleInput,
+                            description: courseDescInput,
+                            category: courseCategoryInput,
+                            level: courseLevelInput,
+                            teacherId: currentUser.id,
+                            createdAt: new Date().toISOString()
+                          });
+                        }
+                        setIsCreatingCourse(false);
+                      } catch (err) {
+                        console.error('Failed to save course:', err);
+                      } finally {
+                        setIsSavingCourse(false);
                       }
-                      setIsCreatingCourse(false);
                     }}
-                    className="px-5 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition shadow"
+                    disabled={isSavingCourse}
+                    className="px-5 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition shadow disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
-                    ذخیره دوره آموزشی
+                    {isSavingCourse && <span className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full block"></span>}
+                    {isSavingCourse ? 'در حال آپلود و ذخیره‌سازی...' : 'ذخیره دوره آموزشی'}
                   </button>
                 </div>
               </div>
@@ -1812,7 +1833,7 @@ export default function TeacherPanel({
                 className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition shadow"
               >
                 <Plus size={14} />
-                <span>ایجاد درس به صورت دستی</span>
+                <span>ایجاد درس جدید</span>
               </button>
             </div>
 
@@ -1840,89 +1861,110 @@ export default function TeacherPanel({
               <span className="text-[10px] font-black text-slate-700">📌 فیلتر براساس دوره آموزشی:</span>
               <select
                 value={selectedCourseFilter}
-                onChange={(e) => setSelectedCourseFilter(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedCourseFilter(val);
+                  if (onFetchLessonsForCourse) {
+                    onFetchLessonsForCourse(val);
+                  }
+                }}
                 className="bg-slate-50 border border-slate-200 text-[10px] font-bold px-3 py-1.5 rounded-xl text-slate-800 focus:outline-none min-w-[200px]"
               >
-                <option value="all">📚 تمامی دوره‌ها ({teacherLessons.length} درس)</option>
+                <option value="">🎓 انتخاب دوره آموزشی...</option>
                 {teacherCourses.map(c => {
-                  const lessonCount = teacherLessons.filter(l => l.courseId === c.id).length;
                   return (
-                    <option key={c.id} value={c.id}>📁 {c.title} ({lessonCount} درس)</option>
+                    <option key={c.id} value={c.id}>📁 {c.title}</option>
                   );
                 })}
               </select>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {teacherLessons
-                .filter(lesson => selectedCourseFilter === 'all' || lesson.courseId === selectedCourseFilter)
-                .map((lesson) => (
-                <div key={lesson.id} className="bg-white border border-slate-200 p-5 rounded-3xl flex flex-col justify-between hover:shadow-md transition-all">
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase">
-                          {lesson.category}
-                        </span>
-                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                          lesson.level === 'beginner' ? 'bg-emerald-50 text-emerald-700' : lesson.level === 'intermediate' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
-                        }`}>
-                          سطح {lesson.level === 'beginner' ? 'ابتدایی' : lesson.level === 'intermediate' ? 'متوسطه' : 'پیشرفته'}
-                        </span>
-                      </div>
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => openLessonEditor(lesson)}
-                          className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-50 transition"
-                          title="ویرایش درس"
-                        >
-                          <Edit size={14} />
-                        </button>
-                        <button
-                          onClick={() => onDeleteLesson(lesson.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-50 transition"
-                          title="حذف درس"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <h3 className="text-xs font-black text-slate-800">{lesson.title}</h3>
-                    {(() => {
-                      const lessonCourse = courses.find(c => c.id === lesson.courseId);
-                      return lessonCourse ? (
-                        <div className="mt-1">
-                          <span className="text-[9px] text-indigo-700 bg-indigo-50 border border-indigo-100/50 px-2 py-0.5 rounded-md font-black inline-block">
-                            دوره: {lessonCourse.title}
+            {!selectedCourseFilter ? (
+              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-10 text-center space-y-3">
+                <FolderOpen className="mx-auto text-slate-400" size={48} />
+                <h3 className="text-sm font-bold text-slate-800">هیچ دوره‌ای انتخاب نشده است</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                  هنوز هیچ دوره‌ای انتخاب نشده است. لطفاً برای مشاهده، طراحی و مدیریت درس‌ها، یک دوره آموزشی از منوی کشویی بالا انتخاب کنید. با انتخاب هر دوره، فقط درس‌های متعلق به همان دوره از پایگاه داده بارگذاری خواهند شد.
+                </p>
+              </div>
+            ) : teacherLessons.length === 0 ? (
+              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-10 text-center space-y-3">
+                <HelpCircle className="mx-auto text-slate-400" size={48} />
+                <h3 className="text-sm font-bold text-slate-800">هیچ درسی برای این دوره یافت نشد</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                  هنوز هیچ درسی برای این دوره آموزشی در پایگاه داده وجود ندارد. با کلیک بر روی دکمه «ایجاد درس جدید» بالا می‌توانید اولین درس را طراحی کنید.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {teacherLessons.map((lesson) => (
+                  <div key={lesson.id} className="bg-white border border-slate-200 p-5 rounded-3xl flex flex-col justify-between hover:shadow-md transition-all">
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase">
+                            {lesson.category}
+                          </span>
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                            lesson.level === 'beginner' ? 'bg-emerald-50 text-emerald-700' : lesson.level === 'intermediate' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
+                          }`}>
+                            سطح {lesson.level === 'beginner' ? 'ابتدایی' : lesson.level === 'intermediate' ? 'متوسطه' : 'پیشرفته'}
                           </span>
                         </div>
-                      ) : null;
-                    })()}
-                    <p className="text-[10px] text-slate-500 mt-1.5 line-clamp-2 leading-relaxed font-semibold">
-                      {lesson.content.replace(/[#*`]/g, '')}
-                    </p>
-
-                     {(() => {
-                      const videoCountLesson = (lesson.youtubeVideos?.length || 0) + (lesson.youtubeUrl ? 1 : 0);
-                      const audioCountLesson = (lesson.audioExplanations?.length || 0) + (lesson.audioExplanationUrl ? 1 : 0);
-                      const pdfCountLesson = lesson.pdfResources?.length || 0;
-
-                      return (
-                        <div className="mt-4 pt-3 border-t border-slate-100">
-                          <div className="flex items-center gap-3 text-[10px] text-slate-500 font-semibold flex-wrap">
-                            <span title="تعداد چالش‌ها و تمرین‌های این درس">📝 {lesson.questions?.length || 0} چالش</span>
-                            {videoCountLesson > 0 && <span title="تعداد فیلم‌های آموزشی این درس">🎥 {videoCountLesson} فیلم آموزشی</span>}
-                            {audioCountLesson > 0 && <span title="تعداد پادکست‌های آموزش صوتی این درس">🎙️ {audioCountLesson} آموزش صوتی</span>}
-                            {pdfCountLesson > 0 && <span title="تعداد جزوات PDF این درس">📄 {pdfCountLesson} جزوه PDF</span>}
-                          </div>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => openLessonEditor(lesson)}
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-50 transition"
+                            title="ویرایش درس"
+                          >
+                            <Edit size={14} />
+                          </button>
+                          <button
+                            onClick={() => onDeleteLesson(lesson.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-50 transition"
+                            title="حذف درس"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
-                      );
-                    })()}
+                      </div>
+
+                      <h3 className="text-xs font-black text-slate-800">{lesson.title}</h3>
+                      {(() => {
+                        const lessonCourse = courses.find(c => c.id === lesson.courseId);
+                        return lessonCourse ? (
+                          <div className="mt-1">
+                            <span className="text-[9px] text-indigo-700 bg-indigo-50 border border-indigo-100/50 px-2 py-0.5 rounded-md font-black inline-block">
+                              دوره: {lessonCourse.title}
+                            </span>
+                          </div>
+                        ) : null;
+                      })()}
+                      <p className="text-[10px] text-slate-500 mt-1.5 line-clamp-2 leading-relaxed font-semibold">
+                        {lesson.content.replace(/[#*`]/g, '')}
+                      </p>
+
+                       {(() => {
+                        const videoCountLesson = (lesson.youtubeVideos?.length || 0) + (lesson.youtubeUrl ? 1 : 0);
+                        const audioCountLesson = (lesson.audioExplanations?.length || 0) + (lesson.audioExplanationUrl ? 1 : 0);
+                        const pdfCountLesson = lesson.pdfResources?.length || 0;
+
+                        return (
+                          <div className="mt-4 pt-3 border-t border-slate-100">
+                            <div className="flex items-center gap-3 text-[10px] text-slate-500 font-semibold flex-wrap">
+                              <span title="تعداد چالش‌ها و تمرین‌های این درس">📝 {lesson.questions?.length || 0} چالش</span>
+                              {videoCountLesson > 0 && <span title="تعداد فیلم‌های آموزشی این درس">🎥 {videoCountLesson} فیلم آموزشی</span>}
+                              {audioCountLesson > 0 && <span title="تعداد پادکست‌های آموزش صوتی این درس">🎙️ {audioCountLesson} آموزش صوتی</span>}
+                              {pdfCountLesson > 0 && <span title="تعداد جزوات PDF این درس">📄 {pdfCountLesson} جزوه PDF</span>}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1936,60 +1978,229 @@ export default function TeacherPanel({
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
-              {/* Left col: sub list */}
-              <div className="lg:col-span-1 space-y-2">
-                <h3 className="text-xs font-black text-slate-400 mb-2 px-1">تکالیف ثبت شده:</h3>
-                {relevantSubmissions.map((sub) => {
-                  const lesson = lessons.find(l => l.id === sub.lessonId);
-                  return (
-                    <button
-                      key={sub.id}
-                      onClick={() => startReview(sub)}
-                      className={`w-full text-right p-3.5 border rounded-2xl hover:bg-slate-50 transition-all flex flex-col gap-1.5 ${
-                        activeSubId === sub.id ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-200 bg-white shadow-sm'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center w-full">
-                        <span className="font-extrabold text-slate-800 text-xs">{sub.studentName}</span>
-                        <div className="flex gap-1 items-center">
-                          {sub.status === 'pending' && sub.assistantGrade !== undefined && (
-                            <span className="text-[8px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-1.5 py-0.5 rounded-full font-black flex items-center gap-0.5 animate-pulse">
-                              🤖 پیش‌نویس استادیار آماده
+              {/* Left col: sub list (Grouped by Student Folders) */}
+              <div className="lg:col-span-1 space-y-4">
+                {selectedFolderStudentId === null ? (
+                  // Folder List View
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-2">
+                      <h3 className="text-xs font-black text-slate-400 px-1">پوشه تکالیف هنرجویان:</h3>
+                      <input
+                        type="text"
+                        placeholder="🔍 جستجوی هنرجو..."
+                        value={folderSearchQuery}
+                        onChange={(e) => setFolderSearchQuery(e.target.value)}
+                        className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 font-sans"
+                        id="student-folder-search-input"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
+                      {(() => {
+                        // Gather list of unique students from acceptedStudents and submissions
+                        const uniqueStudentsMap = new Map<string, UserType>();
+                        
+                        // Add accepted students
+                        acceptedStudents.forEach(s => {
+                          uniqueStudentsMap.set(s.id, s);
+                        });
+                        
+                        // Add other students who have actual submissions
+                        relevantSubmissions.forEach(sub => {
+                          if (!uniqueStudentsMap.has(sub.studentId)) {
+                            const found = users.find(u => u.id === sub.studentId);
+                            if (found) {
+                              uniqueStudentsMap.set(sub.studentId, found);
+                            } else {
+                              uniqueStudentsMap.set(sub.studentId, {
+                                id: sub.studentId,
+                                name: sub.studentName,
+                                email: '',
+                                role: 'student'
+                              });
+                            }
+                          }
+                        });
+
+                        const studentsArray = Array.from(uniqueStudentsMap.values());
+                        const filteredStudents = studentsArray.filter(stu => 
+                          stu.name.toLowerCase().includes(folderSearchQuery.toLowerCase())
+                        );
+
+                        if (filteredStudents.length === 0) {
+                          return (
+                            <p className="text-xs text-slate-400 py-6 text-center font-medium">هنرجویی یافت نشد.</p>
+                          );
+                        }
+
+                        return filteredStudents.map(student => {
+                          // Get stats for this student
+                          const studentSubs = relevantSubmissions.filter(s => s.studentId === student.id);
+                          const pending = studentSubs.filter(s => s.status === 'pending');
+                          const reSubmitted = pending.filter(s => s.attemptsCount && s.attemptsCount > 1);
+
+                          return (
+                            <button
+                              key={student.id}
+                              onClick={() => {
+                                setSelectedFolderStudentId(student.id);
+                                setDisplayedSubmissionsLimit(5); // Reset to 5 when opening a folder
+                              }}
+                              className="w-full text-right p-3.5 border border-slate-200 bg-white shadow-sm rounded-2xl hover:bg-slate-50/50 hover:border-indigo-200 hover:shadow transition-all flex items-center justify-between gap-3 group"
+                              id={`student-folder-btn-${student.id}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-100 transition-colors">
+                                  <Folder size={18} className="fill-indigo-50" />
+                                </div>
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="font-extrabold text-slate-800 text-xs">{student.name}</span>
+                                  <span className="text-[10px] text-slate-400 font-semibold">
+                                    {studentSubs.length > 0 
+                                      ? `کل تکالیف: ${studentSubs.length} مورد`
+                                      : 'بدون تکلیف ارسال شده'
+                                    }
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col items-end gap-1">
+                                {pending.length > 0 && (
+                                  <span className="text-[8px] bg-amber-50 border border-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full font-black animate-pulse whitespace-nowrap">
+                                    ✍️ {pending.length} منتظر بررسی
+                                  </span>
+                                )}
+                                {reSubmitted.length > 0 && (
+                                  <span className="text-[8px] bg-rose-50 border border-rose-200 text-rose-700 px-1.5 py-0.5 rounded-full font-black whitespace-nowrap animate-pulse">
+                                    🔁 تلاش مجدد ({reSubmitted.length})
+                                  </span>
+                                )}
+                                {studentSubs.length > 0 && pending.length === 0 && (
+                                  <span className="text-[8px] bg-emerald-50 border border-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-black whitespace-nowrap">
+                                    ✅ تصحیح شده
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  // Inside Student Folder View
+                  <div className="space-y-3 animate-fade-in">
+                    {(() => {
+                      const student = users.find(u => u.id === selectedFolderStudentId) || {
+                        id: selectedFolderStudentId,
+                        name: 'هنرجو',
+                        email: '',
+                        role: 'student' as const
+                      };
+                      
+                      const studentSubs = relevantSubmissions
+                        .filter(s => s.studentId === selectedFolderStudentId)
+                        .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()); // Newest first
+
+                      const displayedSubs = studentSubs.slice(0, displayedSubmissionsLimit);
+
+                      return (
+                        <>
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <button
+                              onClick={() => setSelectedFolderStudentId(null)}
+                              className="flex items-center gap-1 text-[10px] font-black text-slate-600 hover:text-slate-950 transition-colors bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-xl"
+                              id="back-to-folders-btn"
+                            >
+                              <ArrowRight size={12} className="ml-0.5" />
+                              <span>بازگشت به پوشه‌ها</span>
+                            </button>
+                            <span className="text-[10px] text-slate-400 font-semibold font-mono">
+                              نمایش {displayedSubs.length} از {studentSubs.length}
                             </span>
+                          </div>
+
+                          <div className="bg-slate-50 p-3 rounded-2xl flex items-center gap-2.5 border border-slate-200">
+                            <FolderOpen size={18} className="text-indigo-500 shrink-0" />
+                            <div>
+                              <h4 className="text-xs font-black text-slate-800">پوشه: {student.name}</h4>
+                              <p className="text-[9px] text-slate-500 font-semibold mt-0.5 leading-none">
+                                در انتظار بررسی: {studentSubs.filter(s => s.status === 'pending').length} | تصحیح شده: {studentSubs.filter(s => s.status === 'reviewed').length}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                            {displayedSubs.map((sub) => {
+                              const lesson = lessons.find(l => l.id === sub.lessonId);
+                              return (
+                                <button
+                                  key={sub.id}
+                                  onClick={() => startReview(sub)}
+                                  className={`w-full text-right p-3.5 border rounded-2xl hover:bg-slate-50 transition-all flex flex-col gap-1.5 ${
+                                    activeSubId === sub.id ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-200 bg-white shadow-sm'
+                                  }`}
+                                  id={`sub-item-btn-${sub.id}`}
+                                >
+                                  <div className="flex justify-between items-center w-full">
+                                    <span className="font-extrabold text-slate-800 text-xs">درس: {lesson?.title || 'نامشخص'}</span>
+                                    <div className="flex gap-1 items-center">
+                                      {sub.status === 'pending' && sub.assistantGrade !== undefined && (
+                                        <span className="text-[8px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-1.5 py-0.5 rounded-full font-black flex items-center gap-0.5 animate-pulse">
+                                          🤖 پیش‌نویس استادیار آماده
+                                        </span>
+                                      )}
+                                      {sub.attemptsCount !== undefined && sub.attemptsCount > 1 && (
+                                        <span className="text-[8px] bg-rose-50 border border-rose-200 text-rose-700 px-1.5 py-0.5 rounded-full font-black flex items-center gap-0.5">
+                                          🔁 تلاش مجدد ({sub.attemptsCount - 1})
+                                        </span>
+                                      )}
+                                      {sub.status === 'pending' ? (
+                                        sub.attemptsCount !== undefined && sub.attemptsCount > 1 ? (
+                                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800">
+                                            📝 پاسخ اصلاح‌شده ارسال شد (در انتظار بررسی)
+                                          </span>
+                                        ) : (
+                                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                            بررسی نشده
+                                          </span>
+                                        )
+                                      ) : sub.isTryAgainRequested ? (
+                                        <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                          ✍️ بازخورد ارسال شد (منتظر اصلاح)
+                                        </span>
+                                      ) : (
+                                        <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                          ✅ نمره {sub.grade} ثبت شد
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className="text-[9px] text-slate-400 font-mono">{new Date(sub.submittedAt).toLocaleDateString('fa-IR')}</span>
+                                </button>
+                              );
+                            })}
+
+                            {studentSubs.length === 0 && (
+                              <p className="text-xs text-slate-400 py-6 text-center font-medium">این هنرجو هنوز تکلیفی ارسال نکرده است.</p>
+                            )}
+                          </div>
+
+                          {/* Show More Button / بارگذاری بیشتر */}
+                          {studentSubs.length > displayedSubmissionsLimit && (
+                            <button
+                              onClick={() => setDisplayedSubmissionsLimit(prev => prev + 5)}
+                              className="w-full py-2.5 border border-dashed border-indigo-200 hover:border-indigo-400 text-indigo-600 hover:bg-indigo-50/20 text-xs font-black rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 mt-2"
+                              id="load-more-submissions-btn"
+                            >
+                              <UploadCloud size={14} className="rotate-180" />
+                              <span>بارگذاری تکالیف قدیمی‌تر (+۵ مورد بیشتر)</span>
+                            </button>
                           )}
-                          {sub.attemptsCount !== undefined && sub.attemptsCount > 1 && (
-                            <span className="text-[8px] bg-rose-50 border border-rose-200 text-rose-700 px-1.5 py-0.5 rounded-full font-black flex items-center gap-0.5">
-                              🔁 تلاش مجدد ({sub.attemptsCount - 1})
-                            </span>
-                          )}
-                          {sub.status === 'pending' ? (
-                            sub.attemptsCount !== undefined && sub.attemptsCount > 1 ? (
-                              <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800">
-                                📝 پاسخ اصلاح‌شده ارسال شد (در انتظار بررسی)
-                              </span>
-                            ) : (
-                              <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                                بررسی نشده
-                              </span>
-                            )
-                          ) : sub.isTryAgainRequested ? (
-                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              ✍️ بازخورد ارسال شد (منتظر اصلاح)
-                            </span>
-                          ) : (
-                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                              ✅ نمره {sub.grade} ثبت شد
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-[10px] text-slate-500 leading-none line-clamp-1">درس: {lesson?.title}</span>
-                      <span className="text-[9px] text-slate-400 font-mono">{new Date(sub.submittedAt).toLocaleDateString('fa-IR')}</span>
-                    </button>
-                  );
-                })}
-                {relevantSubmissions.length === 0 && (
-                  <p className="text-xs text-slate-400 py-6 text-center font-medium">هیچ تکلیفی یافت نشد.</p>
+                        </>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
 
@@ -3671,11 +3882,10 @@ export default function TeacherPanel({
                               className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 font-semibold focus:outline-none"
                             >
                               <option value="text">پاسخ تشریحی (متنی)</option>
-                              <option value="code_editor">ادیتور کد پیشرفته (React / CSS)</option>
-                              <option value="handwritten_photo">طرح دستی روی بوم (دست‌نویس شبیه‌ساز)</option>
+                              <option value="code_editor">ادیتور کد پیشرفته</option>
                               <option value="notebook_photo">📷 عکاسی از دفترچه با دوربین (تصویر واقعی)</option>
                               <option value="audio_recording">توضیح صوتی (ضبط صدا)</option>
-                              <option value="mission_url">ارسال لینک پروژه آنلاین (مثل Vercel)</option>
+                              <option value="mission_url">ارسال لینک پروژه</option>
                             </select>
                           </div>
                           <div className="space-y-1">

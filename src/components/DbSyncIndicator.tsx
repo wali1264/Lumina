@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Check, Loader2, Wifi, WifiOff } from 'lucide-react';
+import { Database, Check, Loader2, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 
 interface DbSyncIndicatorProps {
   isLoading: boolean;
@@ -38,6 +38,24 @@ export default function DbSyncIndicator({ isLoading, isLoaded, isHeaderInline = 
       return () => clearTimeout(timer);
     }
   }, [isLoading, isLoaded]);
+
+  if (isHeaderInline) {
+    return (
+      <div 
+        className={`flex items-center justify-center p-2 rounded-full border transition-all duration-500 ${
+          !isOnline
+            ? 'bg-rose-50 text-rose-600 border-rose-200'
+            : isLoading 
+              ? 'bg-amber-50 text-amber-600 border-amber-200' 
+              : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+        }`}
+        title={!isOnline ? 'آفلاین' : isLoading ? 'در حال دریافت اطلاعات...' : 'اطلاعات همگام‌سازی شد'}
+        id="db-sync-indicator-header"
+      >
+        <RefreshCw className={`w-3.5 h-3.5 ${isOnline && isLoading ? 'animate-spin' : ''}`} />
+      </div>
+    );
+  }
 
   // Determine styles and content based on status
   let bgClass = 'bg-white/90 text-slate-700 border-slate-200/80 hover:bg-slate-50';

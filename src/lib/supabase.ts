@@ -871,7 +871,7 @@ export async function dbFetchCourses(role: string, userId: string): Promise<Cour
   return [];
 }
 
-export async function dbFetchLessons(role: string, userId: string): Promise<Lesson[]> {
+export async function dbFetchLessons(role: string, userId: string, courseId?: string): Promise<Lesson[]> {
   try {
     let courseIds: string[] = [];
     if (role === 'teacher') {
@@ -886,7 +886,9 @@ export async function dbFetchLessons(role: string, userId: string): Promise<Less
     }
 
     let query = supabase.from('lessons').select('*');
-    if (role !== 'admin') {
+    if (courseId) {
+      query = query.eq('course_id', courseId);
+    } else if (role !== 'admin') {
       if (courseIds.length === 0) return [];
       query = query.in('course_id', courseIds);
     }
@@ -1274,11 +1276,11 @@ export async function dbAddSubmission(sub: Submission): Promise<void> {
     course_id: courseId,
     answers: sub.answers,
     status: sub.status,
-    grade: sub.grade,
-    feedback: sub.feedback,
-    ai_review: sub.aiReview,
-    graded_by: sub.gradedBy,
-    is_try_again_requested: sub.isTryAgainRequested,
+    grade: sub.grade === undefined ? null : sub.grade,
+    feedback: sub.feedback === undefined ? null : sub.feedback,
+    ai_review: sub.aiReview === undefined ? null : sub.aiReview,
+    graded_by: sub.gradedBy === undefined ? null : sub.gradedBy,
+    is_try_again_requested: sub.isTryAgainRequested === undefined ? null : sub.isTryAgainRequested,
     attempts_count: sub.attemptsCount,
     alert_teacher: sub.alertTeacher,
     submitted_at: sub.submittedAt,
@@ -1294,11 +1296,11 @@ export async function dbAddSubmission(sub: Submission): Promise<void> {
 export async function dbUpdateSubmission(sub: Submission): Promise<void> {
   const { error } = await supabase.from('submissions').update({
     status: sub.status,
-    grade: sub.grade,
-    feedback: sub.feedback,
-    ai_review: sub.aiReview || null,
-    graded_by: sub.gradedBy || null,
-    is_try_again_requested: sub.isTryAgainRequested,
+    grade: sub.grade === undefined ? null : sub.grade,
+    feedback: sub.feedback === undefined ? null : sub.feedback,
+    ai_review: sub.aiReview === undefined ? null : sub.aiReview,
+    graded_by: sub.gradedBy === undefined ? null : sub.gradedBy,
+    is_try_again_requested: sub.isTryAgainRequested === undefined ? null : sub.isTryAgainRequested,
     attempts_count: sub.attemptsCount,
     alert_teacher: sub.alertTeacher,
     max_points: sub.maxPoints

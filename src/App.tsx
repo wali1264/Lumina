@@ -144,35 +144,8 @@ export default function App() {
         // 2. Load the remaining heavier tables in parallel background requests.
         // This keeps the transitions buttery-smooth while hydrating details progressively.
         Promise.all([
-          dbFetchLessons(currentUser.role, currentUser.id).then(dbLessons => {
-            if (!dbLessons) return;
-            let finalLessons = dbLessons;
-            if (currentUser.role === 'teacher' && dbCourses) {
-              const pcsCourse = dbCourses.find(c => c.id === 'c_1784107439780' || c.title.toLowerCase().includes('pcs') || c.title.includes('علوم کامپیوتر'));
-              const hgCourse = dbCourses.find(c => c.id === 'c_1784019915629' || c.title.toLowerCase().includes('hgytyt'));
-              
-              if (pcsCourse && hgCourse) {
-                const lessonsToMove = dbLessons.filter(l => l.courseId === hgCourse.id && (
-                  l.title.includes('تفکر محاسباتی') || l.title.includes('اطلاعات') || l.title.includes('درس ۱') || l.title.includes('درس ۲') || l.title.includes('درس 2')
-                ));
-                
-                if (lessonsToMove.length > 0) {
-                  finalLessons = dbLessons.map(l => {
-                    if (l.courseId === hgCourse.id && (
-                      l.title.includes('تفکر محاسباتی') || l.title.includes('اطلاعات') || l.title.includes('درس ۱') || l.title.includes('درس ۲') || l.title.includes('درس 2')
-                    )) {
-                      const updated = { ...l, courseId: pcsCourse.id };
-                      dbUpdateLesson(updated).catch(err => {
-                        console.error('Auto-healing lesson update failed', err);
-                      });
-                      return updated;
-                    }
-                    return l;
-                  });
-                }
-              }
-            }
-            setLessons(finalLessons);
+          Promise.resolve([]).then(() => {
+            setLessons([]);
           }),
           dbFetchSubmissions(currentUser.role, currentUser.id).then(dbSubmissions => {
             if (dbSubmissions) setSubmissions(dbSubmissions);
@@ -447,6 +420,25 @@ export default function App() {
         setLessons(originalLessons);
         setEnrollments(originalEnrollments);
       }
+    }
+  };
+
+  const handleFetchLessonsForCourse = async (courseId: string) => {
+    if (!currentUser) return;
+    if (!courseId) {
+      setLessons([]);
+      return;
+    }
+    try {
+      setIsSyncing(true);
+      const dbLessons = await dbFetchLessons(currentUser.role, currentUser.id, courseId);
+      if (dbLessons) {
+        setLessons(dbLessons);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch lessons for course:', err);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -768,6 +760,7 @@ export default function App() {
           isLoadingDb={isLoadingDb || isSyncing}
           isDbLoaded={isDbLoaded}
           ratings={ratings}
+          onFetchLessonsForCourse={handleFetchLessonsForCourse}
         />
         <PWAUpdateToast />
       </>
@@ -793,6 +786,7 @@ export default function App() {
           onLogout={handleLogout}
           isLoadingDb={isLoadingDb || isSyncing}
           isDbLoaded={isDbLoaded}
+          onFetchLessonsForCourse={handleFetchLessonsForCourse}
         />
         <PWAUpdateToast />
       </>
