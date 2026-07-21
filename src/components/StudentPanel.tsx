@@ -1024,9 +1024,6 @@ export default function StudentPanel({
         setDailyLimitError('');
         lastLessonIdRef.current = activeLesson.id;
       }
-    } else if (isSameAsCurrent) {
-      // Keep initialAnswersLoadedRef in sync once client state has successfully been synced to parent/db
-      initialAnswersLoadedRef.current = initial;
     }
   }, [selectedLessonId, submissions, activeLesson, studentSubmissions, studentAnswers]);
 
@@ -2247,7 +2244,7 @@ export default function StudentPanel({
                 const isPendingWaitingForAssistant = isPending && lastSub?.assistantGrade === undefined;
                 
                 const isPendingWaitingForTeacher = isPending && !lastSub?.assistantTryAgain;
-                const disabled = isSubmittingAnswers;
+                const disabled = isCompleted;
 
                 return (
                   <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 max-w-4xl mx-auto w-full" dir="rtl">
@@ -2285,7 +2282,7 @@ export default function StudentPanel({
                           </div>
                         )}
                         <p className="text-[10px] text-emerald-800 font-bold leading-relaxed bg-emerald-100/40 p-2.5 rounded-xl border border-emerald-100">
-                          🎉 این درس رسماً توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'مدرس شما'} تصحیح و نمره‌دهی شده است. شما می‌توانید جهت بهبود نمره خود، پاسخ‌ها را ویرایش و مجدداً ارسال کنید. با ارسال مجدد، وضعیت درس به «در انتظار بررسی» تغییر خواهد کرد.
+                          🎉 این درس رسماً توسط {lastSub.gradedBy === 'assistant' ? 'دستیار استاد' : 'مدرس شما'} تایید نهایی شده است و به عنوان تکلیف گذرانده شده علامت‌گذاری شد. چالش‌های این بخش قفل شده‌اند.
                         </p>
                       </div>
                     )}
@@ -2439,7 +2436,16 @@ export default function StudentPanel({
                                 <span>شما امروز دو تا چالش را حل کردی و چالش‌های درس سوم را نمی‌توانی حل کنی، باید صبر کنی فردا حلش کنی</span>
                               </div>
                             )}
-                             <button
+                            {isCompleted ? (
+                              <button
+                                disabled
+                                className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black transition cursor-not-allowed shadow flex items-center justify-center gap-1.5"
+                              >
+                                <CheckCircle2 size={16} />
+                                <span>✓ چالش‌های این درس با موفقیت تایید و ثبت نهایی شده است</span>
+                              </button>
+                            ) : (
+                              <button
                                 onClick={() => {
                                   if (isDailyLimitReached) {
                                     setDailyLimitError('شما امروز دو تا چالش را حل کردی و چالش‌های درس سوم را نمی‌توانی حل کنی، باید صبر کنی فردا حلش کنی');
@@ -2448,20 +2454,19 @@ export default function StudentPanel({
                                   handleStudentSubmit(activeLesson);
                                 }}
                                 disabled={isSubmittingAnswers || isDailyLimitReached}
-                                className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black transition shadow disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                                className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {isSubmittingAnswers 
                                   ? 'در حال ارسال پاسخ‌ها...' 
                                   : isPending
                                     ? 'به‌روزرسانی و ارسال مجدد پاسخ‌ها (ویرایش پاسخ قبلی)'
-                                    : isCompleted
-                                      ? 'ثبت و ارسال مجدد پاسخ‌ها برای تصحیح مجدد و ارتقای نمره'
-                                      : isTeacherTryAgain 
-                                        ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
-                                        : lastSub?.assistantTryAgain
-                                          ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
-                                          : 'ارسال تمامی پاسخ‌ها به مدرس'}
+                                    : isTeacherTryAgain 
+                                      ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
+                                      : lastSub?.assistantTryAgain
+                                        ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
+                                        : 'ارسال تمامی پاسخ‌ها به مدرس'}
                               </button>
+                            )}
                           </>
                         );
                       })()}
