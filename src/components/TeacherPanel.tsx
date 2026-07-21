@@ -2037,11 +2037,79 @@ export default function TeacherPanel({
                                   </div>
                                 )}
 
-                                {ans.answerType === 'code_editor' && (
-                                  <div className="bg-slate-950 text-slate-100 p-4 rounded-2xl font-mono text-[11px] leading-relaxed overflow-x-auto whitespace-pre">
-                                    {ans.value || '// کدی ثبت نشده است'}
-                                  </div>
-                                )}
+                                {ans.answerType === 'code_editor' && (() => {
+                                  let zipInfo = null;
+                                  let legacyCode = '';
+                                  if (ans.value) {
+                                    if (ans.value.startsWith('{')) {
+                                      try {
+                                        zipInfo = JSON.parse(ans.value);
+                                      } catch (e) {
+                                        legacyCode = ans.value;
+                                      }
+                                    } else {
+                                      legacyCode = ans.value;
+                                    }
+                                  }
+
+                                  if (zipInfo && zipInfo.base64) {
+                                    const handleDownload = () => {
+                                      const link = document.createElement('a');
+                                      link.href = zipInfo.base64;
+                                      link.download = zipInfo.fileName || 'student_solution.zip';
+                                      document.body.appendChild(link);
+                                      link.click();
+                                      document.body.removeChild(link);
+                                    };
+
+                                    return (
+                                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 text-right" dir="rtl">
+                                        <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                                          <div className="flex items-center gap-2.5">
+                                            <span className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl">
+                                              <File size={18} />
+                                            </span>
+                                            <div>
+                                              <span className="block text-xs font-black text-white">پروژه ارسالی دانشجو (فایل ZIP)</span>
+                                              <span className="block text-[9px] text-slate-400 font-bold mt-0.5" dir="ltr">{zipInfo.fileName}</span>
+                                            </div>
+                                          </div>
+                                          <span className="bg-emerald-950 text-emerald-400 border border-emerald-800/40 text-[9px] font-mono px-2 py-0.5 rounded-full">
+                                            {zipInfo.fileSize}
+                                          </span>
+                                        </div>
+
+                                        <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                                          دانشجو کدهای این چالش را در سیستم شخصی خود حل کرده و خروجی آن را به صورت فایل فشرده ZIP ضمیمه کرده است. جهت بررسی و بازخوانی سریع کدهای پروژه، لطفاً فایل را دانلود کنید:
+                                        </p>
+
+                                        <div className="flex flex-col sm:flex-row gap-3">
+                                          <button
+                                            type="button"
+                                            onClick={handleDownload}
+                                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-950/20 active:scale-95 transition"
+                                          >
+                                            <Download size={14} />
+                                            <span>دانلود فایل ZIP پروژه دانشجو</span>
+                                          </button>
+                                        </div>
+
+                                        <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex gap-2">
+                                          <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
+                                          <p className="text-[9px] text-slate-400 leading-relaxed">
+                                            <strong>راهنمای بررسی سریع در VS Code:</strong> فایل را اکسترکت کنید، پوشه حاصل را در نرم‌افزار VS Code خود باز کرده و پس از ارزیابی نهایی، بازخورد و نمره خود را در فرم زیر ثبت نمایید.
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="bg-slate-950 text-slate-100 p-4 rounded-2xl font-mono text-[11px] leading-relaxed overflow-x-auto whitespace-pre">
+                                      {legacyCode || '// کدی ثبت نشده است'}
+                                    </div>
+                                  );
+                                })()}
 
                                 {ans.answerType === 'handwritten_photo' && (
                                   <div className="space-y-1 text-center">
@@ -3641,21 +3709,7 @@ export default function TeacherPanel({
                           />
                         </div>
 
-                        {q.answerType === 'code_editor' && (
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold text-indigo-600">کدهای اولیه پروژه (Starter Code)</label>
-                            <textarea
-                              value={q.starterCode || ''}
-                              onChange={(e) => {
-                                setEditingLesson({
-                                  ...editingLesson,
-                                  questions: editingLesson.questions.map(item => item.id === q.id ? { ...item, starterCode: e.target.value } : item)
-                                });
-                              }}
-                              className="w-full h-24 bg-slate-900 text-slate-100 font-mono text-[10px] p-2.5 rounded-xl focus:outline-none"
-                            />
-                          </div>
-                        )}
+
                       </div>
                     ))}
                   </div>
