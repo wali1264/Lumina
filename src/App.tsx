@@ -456,9 +456,10 @@ export default function App() {
     try {
       await dbAddLesson(newLesson);
     } catch (err: any) {
-      console.error('Could not sync lesson addition to Supabase', err);
+      console.error('[SMART CONSOLE] Could not sync lesson addition to Supabase:', err);
       alert(`خطا در ذخیره‌سازی درس در پایگاه داده: ${err.message || err}`);
       setLessons((prev) => prev.filter((l) => l.id !== newLesson.id));
+      throw err;
     }
   };
 
@@ -470,9 +471,10 @@ export default function App() {
     try {
       await dbUpdateLesson(updatedLesson);
     } catch (err: any) {
-      console.error('Could not sync lesson update to Supabase', err);
+      console.error('[SMART CONSOLE] Could not sync lesson update to Supabase:', err);
       alert(`خطا در به‌روزرسانی درس در پایگاه داده: ${err.message || err}`);
       setLessons(originalLessons);
+      throw err;
     }
   };
 

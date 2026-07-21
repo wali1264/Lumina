@@ -79,6 +79,116 @@ const compressImageBase64 = (base64Str: string, maxWidth = 1020, quality = 0.8):
   });
 };
 
+const compressAudioFile = async (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const arrayBuffer = e.target?.result as ArrayBuffer;
+        if (!arrayBuffer) {
+          throw new Error('فایل خالی است');
+        }
+
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContextClass) {
+          const fallbackReader = new FileReader();
+          fallbackReader.onloadend = () => resolve(fallbackReader.result as string);
+          fallbackReader.readAsDataURL(file);
+          return;
+        }
+
+        const audioCtx = new AudioContextClass();
+        
+        // Handle potentially suspended context in iframes
+        if (audioCtx.state === 'suspended') {
+          await Promise.race([
+            audioCtx.resume(),
+            new Promise((_, r) => setTimeout(r, 500))
+          ]).catch(() => console.warn('Could not resume audio context'));
+        }
+
+        // Decode audio with 1.5s timeout to prevent hanging in iframe environments
+        const decodePromise = audioCtx.decodeAudioData(arrayBuffer);
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Audio decoding timed out')), 1500)
+        );
+        
+        const audioBuffer = await Promise.race([decodePromise, timeoutPromise]);
+
+        const targetSampleRate = 16000;
+        const offlineCtx = new OfflineAudioContext(
+          1,
+          Math.max(1, audioBuffer.duration * targetSampleRate),
+          targetSampleRate
+        );
+
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineCtx.destination);
+        source.start();
+
+        const renderedBuffer = await offlineCtx.startRendering();
+        const wavBuffer = bufferToWav(renderedBuffer);
+        const base64Str = arrayBufferToBase64(wavBuffer);
+        resolve(`data:audio/wav;base64,${base64Str}`);
+      } catch (err) {
+        console.warn('Audio compression failed, falling back to raw upload:', err);
+        const fallbackReader = new FileReader();
+        fallbackReader.onloadend = () => resolve(fallbackReader.result as string);
+        fallbackReader.readAsDataURL(file);
+      }
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+function bufferToWav(buffer: AudioBuffer): ArrayBuffer {
+  const sampleRate = buffer.sampleRate;
+  const samples = buffer.getChannelData(0);
+  const arrayBuffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(arrayBuffer);
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  return arrayBuffer;
+}
+
+function writeString(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+
 export default function TeacherPanel({
   currentUser, users, courses, lessons, submissions, enrollments, directMessages, onSendDirectMessage,
   onAddCourse, onUpdateCourse, onDeleteCourse, onAddLesson, onUpdateLesson, onDeleteLesson,
@@ -153,6 +263,7 @@ export default function TeacherPanel({
   const [isDragOver, setIsDragOver] = useState(false);
   const [stepImageDesc, setStepImageDesc] = useState('');
   const [isGeneratingAiLesson, setIsGeneratingAiLesson] = useState(false);
+  const [isSavingLesson, setIsSavingLesson] = useState(false);
   const [aiTopic, setAiTopic] = useState('');
   const [aiLevel, setAiLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('beginner');
   const [aiChallengeCount, setAiChallengeCount] = useState<number>(3);
@@ -160,6 +271,8 @@ export default function TeacherPanel({
 
   // New states for multiple supplementary resources
   const [newAudioTitle, setNewAudioTitle] = useState('');
+  const [newAudioUrl, setNewAudioUrl] = useState('');
+  const [isCompressingAudio, setIsCompressingAudio] = useState(false);
   const [newVideoTitle, setNewVideoTitle] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [newPdfTitle, setNewPdfTitle] = useState('');
@@ -631,16 +744,24 @@ export default function TeacherPanel({
     openLessonEditor(empty);
   };
 
-  const saveLesson = () => {
+  const saveLesson = async () => {
     if (!editingLesson) return;
     if (!editingLesson.courseId) {
       alert('⚠️ لطفا ابتدا دوره مرتبط با این درس را از منوی کشویی انتخاب کنید! اختصاص دوره برای ذخیره درس اجباری است.');
       return;
     }
-    onUpdateLesson(editingLesson);
-    setIsEditingLesson(false);
-    setEditingLesson(null);
-    alert('محتوای درس با موفقیت ذخیره شد!');
+    setIsSavingLesson(true);
+    try {
+      await onUpdateLesson(editingLesson);
+      setIsEditingLesson(false);
+      setEditingLesson(null);
+      alert('محتوای درس با موفقیت ذخیره شد!');
+    } catch (err: any) {
+      console.error('[UI ERROR] Failed to save lesson:', err);
+      // Wait: App.tsx will also alert, but just in case we let user know here too.
+    } finally {
+      setIsSavingLesson(false);
+    }
   };
 
   // --- Course Export Logic ---
@@ -707,7 +828,7 @@ export default function TeacherPanel({
     reader.readAsText(file);
   };
 
-  const handleExecuteImport = () => {
+  const handleExecuteImport = async () => {
     if (!importFileContent || selectedImportCourseIds.length === 0) {
       alert('⚠️ لطفا حداقل یک دوره را برای وارد کردن انتخاب کنید.');
       return;
@@ -717,9 +838,9 @@ export default function TeacherPanel({
       let importedCoursesCount = 0;
       let importedLessonsCount = 0;
 
-      selectedImportCourseIds.forEach(oldCourseId => {
+      for (const oldCourseId of selectedImportCourseIds) {
         const originalCourse = importFileContent.courses.find(c => c.id === oldCourseId);
-        if (!originalCourse) return;
+        if (!originalCourse) continue;
 
         // Generate brand new ID to prevent conflicts and ensure unique instance
         const newCourseId = 'course_imported_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
@@ -736,12 +857,12 @@ export default function TeacherPanel({
         };
 
         // Call parent prop to add course
-        onAddCourse(newCourse);
+        await onAddCourse(newCourse);
         importedCoursesCount++;
 
         // Find all lessons associated with this course inside the backup file
         const originalLessons = importFileContent.lessons.filter(l => l.courseId === oldCourseId);
-        originalLessons.forEach(originalLesson => {
+        for (const originalLesson of originalLessons) {
           const newLessonId = 'lesson_imported_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
 
           const newLesson: Lesson = {
@@ -753,10 +874,10 @@ export default function TeacherPanel({
           };
 
           // Call parent prop to add lesson
-          onAddLesson(newLesson);
+          await onAddLesson(newLesson);
           importedLessonsCount++;
-        });
-      });
+        }
+      }
 
       setImportStatus('success');
       alert(`🎉 با موفقیت انجام شد! ${importedCoursesCount} دوره و ${importedLessonsCount} درس به لیست آموزشی شما اضافه گردید.`);
@@ -1547,7 +1668,7 @@ export default function TeacherPanel({
                             </span>
                             <span className="text-slate-200">|</span>
                             <span title="تعداد فیلم‌های آموزشی">🎥 {videoCount} فیلم</span>
-                            <span title="تعداد فایل‌های صوتی">🎙️ {audioCount} صوت</span>
+                            <span title="تعداد آموزش‌های صوتی (پادکست)">🎙️ {audioCount} پادکست</span>
                             {pdfCount > 0 && <span title="تعداد جزوات PDF">📄 {pdfCount} جزوه</span>}
                           </div>
                         );
@@ -1792,7 +1913,7 @@ export default function TeacherPanel({
                           <div className="flex items-center gap-3 text-[10px] text-slate-500 font-semibold flex-wrap">
                             <span title="تعداد چالش‌ها و تمرین‌های این درس">📝 {lesson.questions?.length || 0} چالش</span>
                             {videoCountLesson > 0 && <span title="تعداد فیلم‌های آموزشی این درس">🎥 {videoCountLesson} فیلم آموزشی</span>}
-                            {audioCountLesson > 0 && <span title="تعداد فایل‌های صوتی توضیحی این درس">🎙️ {audioCountLesson} فایل صوتی</span>}
+                            {audioCountLesson > 0 && <span title="تعداد پادکست‌های آموزش صوتی این درس">🎙️ {audioCountLesson} آموزش صوتی</span>}
                             {pdfCountLesson > 0 && <span title="تعداد جزوات PDF این درس">📄 {pdfCountLesson} جزوه PDF</span>}
                           </div>
                         </div>
@@ -2755,10 +2876,10 @@ export default function TeacherPanel({
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-indigo-700 font-bold focus:outline-none border-indigo-200"
                   >
-                    {teacherCourses.filter(c => c.level === editingLesson.level).map((c) => (
+                    {teacherCourses.map((c) => (
                       <option key={c.id} value={c.id}>{c.title}</option>
                     ))}
-                    {teacherCourses.filter(c => c.level === editingLesson.level).length === 0 && (
+                    {teacherCourses.length === 0 && (
                       <option value="">دوره مرتبط یافت نشد!</option>
                     )}
                   </select>
@@ -3543,99 +3664,101 @@ export default function TeacherPanel({
 
               {lessonModalTab === 'audioVideo' && (
                 <div className="space-y-6">
-                  {/* Section 1: Audio Explanations */}
+                  {/* Section 1: Audio Explanations (Podcasts) */}
                   <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 space-y-4">
                     <div>
-                      <h4 className="text-xs font-black text-slate-800">🎙️ فایل‌های صوتی توضیح درس‌نامه</h4>
+                      <h4 className="text-xs font-black text-slate-800">🎙️ پادکست‌ها و آموزش‌های صوتی درس (لینک یوتیوب)</h4>
                       <p className="text-[9px] text-slate-500 font-semibold mt-0.5">
-                        معلم گرامی، شما می‌توانید چندین فایل صوتی با عنوان‌های متمایز آپلود کنید تا هر بخش از درس‌نامه به صورت مجزا صوتی توضیح داده شود.
+                        معلم گرامی، شما می‌توانید لینک پادکست‌ها یا توضیحات صوتی خود را که در یوتیوب آپلود شده‌اند در این بخش قرار دهید. هنرجویان این پادکست‌ها را مستقیماً از طریق پلیر داخلی در اپلیکیشن گوش خواهند داد.
                       </p>
                     </div>
 
                     <div className="bg-white border border-slate-200/60 rounded-2xl p-4 space-y-3 shadow-sm">
-                      <span className="text-[10px] font-extrabold text-slate-600 block">آپلود صوت جدید</span>
+                      <span className="text-[10px] font-extrabold text-slate-600 block">افزودن پادکست صوتی جدید</span>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
                         <div>
-                          <label className="text-[9px] font-bold text-slate-500 block mb-1">عنوان صوت (مانند: توضیح بخش اول)</label>
+                          <label className="text-[9px] font-bold text-slate-500 block mb-1">عنوان پادکست / آموزش صوتی (مانند: پادکست بخش اول)</label>
                           <input
                             type="text"
-                            placeholder="عنوان فایل صوتی را بنویسید..."
+                            placeholder="عنوان پادکست را بنویسید..."
                             value={newAudioTitle}
                             onChange={(e) => setNewAudioTitle(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold"
                           />
                         </div>
-                        <div>
-                          <label className="text-[9px] font-bold text-slate-500 block mb-1">انتخاب و آپلود فایل صوتی</label>
-                          <input
-                            type="file"
-                            accept="audio/*"
-                            id="teacher-audio-uploader"
-                            className="hidden"
-                            onChange={(e) => {
-                              if (!editingLesson) return;
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  const base64 = reader.result as string;
-                                  const title = newAudioTitle.trim() || `توضیح صوتی ${(editingLesson.audioExplanations?.length || 0) + 1}`;
-                                  setEditingLesson({
-                                    ...editingLesson,
-                                    audioExplanations: [
-                                      ...(editingLesson.audioExplanations || []),
-                                      { id: Math.random().toString(36).substr(2, 9), title, url: base64 }
-                                    ]
-                                  });
-                                  setNewAudioTitle('');
-                                };
-                                reader.readAsDataURL(file);
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <label className="text-[9px] font-bold text-slate-500 block mb-1">آدرس یوتیوب پادکست</label>
+                            <input
+                              type="url"
+                              placeholder="https://www.youtube.com/watch?v=..."
+                              value={newAudioUrl}
+                              onChange={(e) => setNewAudioUrl(e.target.value)}
+                              dir="ltr"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs text-slate-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!editingLesson || !newAudioUrl.trim()) return;
+                              let url = newAudioUrl.trim();
+                              if (url && !/^https?:\/\//i.test(url)) {
+                                url = 'https://' + url;
                               }
+                              const title = newAudioTitle.trim() || `پادکست صوتی ${(editingLesson.audioExplanations?.length || 0) + 1}`;
+                              setEditingLesson({
+                                ...editingLesson,
+                                audioExplanations: [
+                                  ...(editingLesson.audioExplanations || []),
+                                  { id: Math.random().toString(36).substr(2, 9), title, url }
+                                ]
+                              });
+                              setNewAudioTitle('');
+                              setNewAudioUrl('');
                             }}
-                          />
-                          <label
-                            htmlFor="teacher-audio-uploader"
-                            className="flex items-center justify-center gap-2 w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-200 rounded-xl py-2 px-3 text-xs font-black cursor-pointer transition"
+                            className="bg-slate-900 hover:bg-black text-white px-4 rounded-xl text-xs font-black transition self-end h-[34px] flex items-center justify-center gap-1 shrink-0"
                           >
-                            <Plus size={14} />
-                            <span>انتخاب فایل و آپلود</span>
-                          </label>
+                            <Plus size={13} />
+                            <span>افزودن</span>
+                          </button>
                         </div>
                       </div>
-                      <p className="text-[8px] text-slate-400 font-semibold mt-1">حداکثر حجم فایل صوتی: ۱۰ مگابایت</p>
                     </div>
 
                     {/* List of uploaded audios */}
                     <div className="space-y-2">
-                      <span className="text-[10px] font-extrabold text-slate-700 block">فایل‌های صوتی آپلود شده ({editingLesson.audioExplanations?.length || 0})</span>
+                      <span className="text-[10px] font-extrabold text-slate-700 block">پادکست‌های ثبت‌شده ({editingLesson.audioExplanations?.length || 0})</span>
                       {(!editingLesson.audioExplanations || editingLesson.audioExplanations.length === 0) ? (
                         <div className="p-4 text-center bg-white rounded-2xl border border-slate-150 text-[10px] text-slate-400 font-bold">
-                          هیچ فایل صوتی برای این درس آپلود نشده است.
+                          هیچ پادکست یا لینک صوتی برای این درس ثبت نشده است.
                         </div>
                       ) : (
                         <div className="space-y-2">
                           {editingLesson.audioExplanations.map((audio, index) => (
-                            <div key={audio.id} className="bg-white border border-slate-150 rounded-2xl p-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm">
-                              <div className="flex items-center gap-2.5">
+                            <div key={audio.id} className="bg-white border border-slate-150 rounded-2xl p-3 flex items-center justify-between gap-3 shadow-sm">
+                              <div className="flex items-center gap-2">
                                 <span className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-[9px] font-black">{index + 1}</span>
-                                <span className="text-[11px] font-black text-slate-800">{audio.title}</span>
+                                <div className="space-y-0.5">
+                                  <span className="text-[11px] font-black text-slate-800 block">{audio.title}</span>
+                                  <a href={audio.url} target="_blank" rel="noreferrer" className="text-[9px] text-indigo-600 hover:underline font-mono block dir-ltr text-right">
+                                    {audio.url}
+                                  </a>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2 w-full md:w-auto justify-between">
-                                <audio src={audio.url} controls className="h-7 w-full md:w-56" />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingLesson({
-                                      ...editingLesson,
-                                      audioExplanations: editingLesson.audioExplanations?.filter(a => a.id !== audio.id)
-                                    });
-                                  }}
-                                  className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition"
-                                  title="حذف فایل صوتی"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingLesson({
+                                    ...editingLesson,
+                                    audioExplanations: editingLesson.audioExplanations?.filter(a => a.id !== audio.id)
+                                  });
+                                }}
+                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition"
+                                title="حذف پادکست"
+                              >
+                                <Trash2 size={13} />
+                              </button>
                             </div>
                           ))}
                         </div>
@@ -3681,12 +3804,16 @@ export default function TeacherPanel({
                             type="button"
                             onClick={() => {
                               if (!editingLesson || !newVideoUrl.trim()) return;
+                              let url = newVideoUrl.trim();
+                              if (url && !/^https?:\/\//i.test(url)) {
+                                url = 'https://' + url;
+                              }
                               const title = newVideoTitle.trim() || `ویدیوی یوتیوب ${(editingLesson.youtubeVideos?.length || 0) + 1}`;
                               setEditingLesson({
                                 ...editingLesson,
                                 youtubeVideos: [
                                   ...(editingLesson.youtubeVideos || []),
-                                  { id: Math.random().toString(36).substr(2, 9), title, url: newVideoUrl.trim() }
+                                  { id: Math.random().toString(36).substr(2, 9), title, url }
                                 ]
                               });
                               setNewVideoTitle('');
@@ -3777,10 +3904,13 @@ export default function TeacherPanel({
                               type="button"
                               onClick={() => {
                                 if (!editingLesson) return;
-                                const url = newPdfUrl.trim();
+                                let url = newPdfUrl.trim();
                                 if (!url) {
                                   alert('لطفاً لینک دانلود فایل PDF را وارد کنید.');
                                   return;
+                                }
+                                if (url && !/^https?:\/\//i.test(url)) {
+                                  url = 'https://' + url;
                                 }
                                 const title = newPdfTitle.trim() || `فایل PDF ${(editingLesson.pdfResources?.length || 0) + 1}`;
                                 setEditingLesson({
@@ -3849,15 +3979,18 @@ export default function TeacherPanel({
             <div className="p-4 border-t border-slate-100 flex justify-end gap-2 bg-slate-50">
               <button
                 onClick={() => setIsEditingLesson(false)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition"
+                disabled={isSavingLesson}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 انصراف
               </button>
               <button
                 onClick={saveLesson}
-                className="px-5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition shadow-sm"
+                disabled={isSavingLesson}
+                className="px-5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
               >
-                ذخیره نهایی تغییرات درس
+                {isSavingLesson && <span className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full block"></span>}
+                {isSavingLesson ? 'در حال ذخیره‌سازی...' : 'ذخیره نهایی تغییرات درس'}
               </button>
             </div>
 

@@ -1139,7 +1139,18 @@ export async function dbDeleteCourse(courseId: string): Promise<void> {
 }
 
 export async function dbAddLesson(lesson: Lesson): Promise<void> {
-  const { error } = await supabase.from('lessons').insert({
+  console.log('[SMART CONSOLE - DB WRITE] dbAddLesson requested for ID:', lesson.id);
+  
+  // 1. Check Session Auth status
+  const { data: { session } } = await supabase.auth.getSession();
+  console.log('[SMART CONSOLE - DB WRITE] Auth Session exists:', !!session);
+  if (session) {
+    console.log('[SMART CONSOLE - DB WRITE] Authenticated User ID:', session.user?.id, 'Email:', session.user?.email);
+  } else {
+    console.warn('[SMART CONSOLE - DB WRITE] WARNING: No active Supabase session found! Write will likely fail or get blocked by Row Level Security (RLS).');
+  }
+
+  const payload = {
     id: lesson.id,
     course_id: lesson.courseId,
     title: lesson.title,
@@ -1154,15 +1165,37 @@ export async function dbAddLesson(lesson: Lesson): Promise<void> {
     audio_explanations: lesson.audioExplanations || null,
     youtube_videos: lesson.youtubeVideos || null,
     pdf_resources: lesson.pdfResources || null
-  });
+  };
+  console.log('[SMART CONSOLE - DB WRITE] Payload detail:', JSON.stringify(payload, null, 2));
+
+  const { error } = await supabase.from('lessons').insert(payload);
+  
   if (error) {
-    console.error('Failed to add lesson in DB', error);
-    throw error;
+    console.error('[SMART CONSOLE - DB ERROR] Failed to add lesson in Supabase:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code
+    });
+    throw new Error(`خطای ذخیره‌سازی درس (${error.code || 'نامشخص'}): ${error.message}. جزئیات: ${error.details || 'ندارد'}`);
   }
+
+  console.log('[SMART CONSOLE - DB WRITE] Lesson inserted successfully!');
 }
 
 export async function dbUpdateLesson(lesson: Lesson): Promise<void> {
-  const { error } = await supabase.from('lessons').update({
+  console.log('[SMART CONSOLE - DB UPDATE] dbUpdateLesson requested for ID:', lesson.id);
+
+  // 1. Check Session Auth status
+  const { data: { session } } = await supabase.auth.getSession();
+  console.log('[SMART CONSOLE - DB UPDATE] Auth Session exists:', !!session);
+  if (session) {
+    console.log('[SMART CONSOLE - DB UPDATE] Authenticated User ID:', session.user?.id, 'Email:', session.user?.email);
+  } else {
+    console.warn('[SMART CONSOLE - DB UPDATE] WARNING: No active Supabase session found! Update will likely fail or get blocked by Row Level Security (RLS).');
+  }
+
+  const payload = {
     course_id: lesson.courseId,
     title: lesson.title,
     content: lesson.content,
@@ -1176,11 +1209,29 @@ export async function dbUpdateLesson(lesson: Lesson): Promise<void> {
     audio_explanations: lesson.audioExplanations || null,
     youtube_videos: lesson.youtubeVideos || null,
     pdf_resources: lesson.pdfResources || null
-  }).eq('id', lesson.id);
+  };
+  console.log('[SMART CONSOLE - DB UPDATE] Payload detail:', JSON.stringify(payload, null, 2));
+
+  const { data, error } = await supabase.from('lessons').update(payload).eq('id', lesson.id).select('id');
+
   if (error) {
-    console.error('Failed to update lesson in DB', error);
-    throw error;
+    console.error('[SMART CONSOLE - DB ERROR] Failed to update lesson in Supabase:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code
+    });
+    throw new Error(`خطای ویرایش درس (${error.code || 'نامشخص'}): ${error.message}. جزئیات: ${error.details || 'ندارد'}`);
   }
+
+  console.log('[SMART CONSOLE - DB UPDATE] Update returned data:', data);
+
+  if (!data || data.length === 0) {
+    console.error('[SMART CONSOLE - RLS/ID ERROR] Update returned 0 affected rows! Possible causes:\n1. The lesson ID does not exist in the DB.\n2. RLS policy rejected the update (e.g., you do not own the course of this lesson, or auth.uid() does not match).');
+    throw new Error('ویرایش این درس با خطا مواجه شد. ممکن است نشست کاربری شما منقضی شده باشد یا این درس متعلق به شما نباشد (خطای دسترسی RLS).');
+  }
+
+  console.log('[SMART CONSOLE - DB UPDATE] Lesson updated successfully!');
 }
 
 export async function dbDeleteLesson(lessonId: string): Promise<void> {

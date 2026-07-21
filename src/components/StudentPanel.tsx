@@ -1887,19 +1887,19 @@ export default function StudentPanel({
                     <button
                       onClick={() => setIsAudioListModalOpen(true)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-150 shadow-sm transition-all"
-                      title="شنیدن توضیحات صوتی مربی"
+                      title="شنیدن پادکست‌ها و آموزش‌های صوتی مربی"
                     >
                       <Volume2 size={13} className="text-indigo-600" />
-                      <span>صوت‌های توضیحی ({((activeLesson.audioExplanations?.length || 0) + (activeLesson.audioExplanationUrl ? 1 : 0))})</span>
+                      <span>آموزش صوتی ({((activeLesson.audioExplanations?.length || 0) + (activeLesson.audioExplanationUrl ? 1 : 0))})</span>
                     </button>
                   ) : (
                     <button
                       disabled
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-bold bg-slate-50 text-slate-400 cursor-not-allowed border border-slate-150"
-                      title="توضیح صوتی برای این درس تعریف نشده است"
+                      title="آموزش صوتی برای این درس تعریف نشده است"
                     >
                       <VolumeX size={13} />
-                      <span>فاقد توضیح صوتی</span>
+                      <span>فاقد آموزش صوتی</span>
                     </button>
                   )}
 
@@ -2826,7 +2826,7 @@ export default function StudentPanel({
       {/* ======================================================== */}
       {isAudioListModalOpen && activeLesson && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={closeAudioModal}>
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 max-w-lg w-full relative text-right animate-fadeIn" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 max-w-2xl w-full relative text-right animate-fadeIn" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={closeAudioModal}
               className="absolute top-4 left-4 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-500 hover:text-slate-800 transition"
@@ -2835,82 +2835,120 @@ export default function StudentPanel({
             </button>
 
             <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
-              <span className="text-lg">🔊</span>
-              <h3 className="text-sm font-black text-slate-900">صوت‌های توضیحی این درس</h3>
+              <span className="text-lg">🎙️</span>
+              <h3 className="text-sm font-black text-slate-900">آموزش‌های صوتی و پادکست‌های درس</h3>
             </div>
 
             <p className="text-[10px] text-slate-400 font-semibold mb-4 leading-relaxed">
-              توضیحات ضبط‌شده مربی برای این بخش را گوش دهید تا مفاهیم را بهتر فرا بگیرید.
+              آموزش‌های صوتی، پادکست‌ها یا توضیحات تکمیلی مربی را گوش دهید یا مشاهده کنید تا مفاهیم درس را بهتر فرابگیرید.
             </p>
 
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
               {/* Default default audio explanation url */}
               {activeLesson.audioExplanationUrl && (
-                <div className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
-                  playingAudioUrl === activeLesson.audioExplanationUrl
-                    ? 'bg-indigo-50 border-indigo-200 shadow-sm'
-                    : 'bg-slate-50 border-slate-150 hover:bg-slate-100/70'
-                }`}>
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                      playingAudioUrl === activeLesson.audioExplanationUrl ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-200 text-slate-600'
-                    }`}>
-                      <Volume2 size={15} />
-                    </div>
-                    <div className="text-right min-w-0 flex-1">
-                      <span className="text-xs font-black text-slate-800 block truncate">توضیحات صوتی اصلی درس</span>
-                      <span className="text-[8px] text-indigo-600 font-bold block mt-0.5">صوت پیش‌فرض مربی</span>
-                    </div>
-                  </div>
+                (() => {
+                  const isYoutube = activeLesson.audioExplanationUrl.includes('youtube.com') || activeLesson.audioExplanationUrl.includes('youtu.be');
+                  const embedUrl = isYoutube ? getYoutubeEmbedUrl(activeLesson.audioExplanationUrl) : null;
+                  
+                  return (
+                    <div className="p-4 rounded-2xl border border-slate-150 bg-slate-50 space-y-3">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="text-right flex-1 min-w-0">
+                          <span className="text-xs font-black text-slate-800 block truncate">توضیحات صوتی اصلی درس</span>
+                          <span className="text-[8px] text-indigo-600 font-bold block mt-0.5">آموزش صوتی مرجع مربی</span>
+                        </div>
+                        
+                        {isYoutube && (
+                          <a
+                            href={activeLesson.audioExplanationUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-black rounded-xl border border-indigo-100 transition shadow-sm"
+                          >
+                            <Youtube size={13} className="text-indigo-600" />
+                            <span>مشاهده در یوتیوب ↗</span>
+                          </a>
+                        )}
+                      </div>
 
-                  <button
-                    onClick={() => playAudioItem(activeLesson.audioExplanationUrl!)}
-                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition ${
-                      playingAudioUrl === activeLesson.audioExplanationUrl
-                        ? 'bg-slate-900 hover:bg-black text-white'
-                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                    }`}
-                  >
-                    {playingAudioUrl === activeLesson.audioExplanationUrl ? '⏹ توقف پخش' : '▶ پخش صوت'}
-                  </button>
-                </div>
+                      {isYoutube ? (
+                        embedUrl ? (
+                          <div className="aspect-video w-full rounded-xl overflow-hidden border border-slate-200 shadow-inner bg-black">
+                            <iframe
+                              src={embedUrl}
+                              title="توضیحات صوتی اصلی درس"
+                              className="w-full h-full"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-[9px] text-slate-400 font-bold">امکان نمایش مستقیم برای این لینک مقدور نیست.</p>
+                        )
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <audio src={activeLesson.audioExplanationUrl} controls className="w-full" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
               )}
 
               {/* Multi audios uploaded */}
-              {activeLesson.audioExplanations && activeLesson.audioExplanations.map((audio, idx) => (
-                <div key={idx} className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
-                  playingAudioUrl === audio.url
-                    ? 'bg-indigo-50 border-indigo-200 shadow-sm'
-                    : 'bg-slate-50 border-slate-150 hover:bg-slate-100/70'
-                }`}>
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                      playingAudioUrl === audio.url ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-200 text-slate-600'
-                    }`}>
-                      <Volume2 size={15} />
-                    </div>
-                    <div className="text-right min-w-0 flex-1">
-                      <span className="text-xs font-black text-slate-800 block truncate">{audio.title || `توضیح صوتی شماره ${idx + 1}`}</span>
-                      <span className="text-[8px] text-slate-400 font-bold block mt-0.5">فایل صوتی ضمیمه شده</span>
-                    </div>
-                  </div>
+              {activeLesson.audioExplanations && activeLesson.audioExplanations.map((audio, idx) => {
+                const isYoutube = audio.url.includes('youtube.com') || audio.url.includes('youtu.be');
+                const embedUrl = isYoutube ? getYoutubeEmbedUrl(audio.url) : null;
 
-                  <button
-                    onClick={() => playAudioItem(audio.url)}
-                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${
-                      playingAudioUrl === audio.url
-                        ? 'bg-slate-900 hover:bg-black text-white'
-                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                    }`}
-                  >
-                    {playingAudioUrl === audio.url ? '⏹ توقف پخش' : '▶ پخش صوت'}
-                  </button>
-                </div>
-              ))}
+                return (
+                  <div key={idx} className="p-4 rounded-2xl border border-slate-150 bg-slate-50 space-y-3 transition-all hover:border-slate-250">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="text-right flex-1 min-w-0">
+                        <span className="text-xs font-black text-slate-850 block truncate">{audio.title || `پادکست شماره ${idx + 1}`}</span>
+                        <span className="text-[8px] text-slate-400 font-bold block mt-0.5">
+                          {isYoutube ? '🎙️ پادکست آموزشی یوتیوب' : '🎵 فایل صوتی ضمیمه شده'}
+                        </span>
+                      </div>
+
+                      {isYoutube && (
+                        <a
+                          href={audio.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-black rounded-xl border border-indigo-100 transition shadow-sm"
+                        >
+                          <Youtube size={13} className="text-indigo-600" />
+                          <span>مشاهده در یوتیوب ↗</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {isYoutube ? (
+                      embedUrl ? (
+                        <div className="aspect-video w-full rounded-xl overflow-hidden border border-slate-200 shadow-inner bg-black">
+                          <iframe
+                            src={embedUrl}
+                            title={audio.title}
+                            className="w-full h-full"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-[9px] text-slate-400 font-bold">امکان پخش مستقیم برای این پادکست وجود ندارد.</p>
+                      )
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <audio src={audio.url} controls className="w-full" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
               {!activeLesson.audioExplanationUrl && (!activeLesson.audioExplanations || activeLesson.audioExplanations.length === 0) && (
                 <div className="p-6 text-center text-slate-400 text-xs font-bold bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
-                  هیچ فایل صوتی برای این درس ثبت نشده است.
+                  هیچ آموزش صوتی یا پادکستی برای این درس ثبت نشده است.
                 </div>
               )}
             </div>
