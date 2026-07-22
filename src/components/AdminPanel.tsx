@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldAlert, Check, X, Shield, Users, Award, BookOpen, Trash2, Settings, AlertTriangle, Download, Upload, Database } from 'lucide-react';
+import { ShieldAlert, Check, X, Shield, Users, Award, BookOpen, Trash2, Settings, AlertTriangle, Download, Upload, Database, User, GraduationCap } from 'lucide-react';
 import { User as UserType } from '../types';
 import { dbGetAll, dbSet, dbClear } from '../utils/indexedDB';
 
@@ -233,11 +233,17 @@ export default function AdminPanel({ users, onApproveTeacher, onDeleteUser, onLo
                 {teachers.map((teacher) => (
                   <tr key={teacher.id} className="hover:bg-slate-50 transition">
                     <td className="p-4 flex items-center gap-3">
-                      <img
-                        src={teacher.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100'}
-                        alt={teacher.name}
-                        className="w-10 h-10 rounded-full border border-slate-200 object-cover"
-                      />
+                      {teacher.avatarUrl ? (
+                        <img
+                          src={teacher.avatarUrl}
+                          alt={teacher.name}
+                          className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                          <User size={18} />
+                        </div>
+                      )}
                       <div>
                         <span className="font-extrabold text-slate-800 block">{teacher.name}</span>
                         <span className="text-[9px] text-indigo-600 font-semibold">استاد برنامه‌نویسی و فرانت‌اند</span>
@@ -320,11 +326,17 @@ export default function AdminPanel({ users, onApproveTeacher, onDeleteUser, onLo
                   return (
                     <tr key={student.id} className="hover:bg-slate-50 transition">
                       <td className="p-4 flex items-center gap-3">
-                        <img
-                          src={student.avatarUrl || 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&q=80&w=100'}
-                          alt={student.name}
-                          className="w-8 h-8 rounded-full border border-slate-200 object-cover"
-                        />
+                        {student.avatarUrl ? (
+                          <img
+                            src={student.avatarUrl}
+                            alt={student.name}
+                            className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center shrink-0">
+                            <GraduationCap size={15} />
+                          </div>
+                        )}
                         <span className="font-bold text-slate-800">{student.name}</span>
                       </td>
                       <td className="p-4 font-mono text-slate-600">{student.email}</td>

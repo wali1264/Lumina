@@ -139,7 +139,7 @@ export default function AuthScreen({
             phone: u.phone || '',
             province: u.province || '',
             code: u.code,
-            avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200'
+            avatarUrl: u.avatar_url || ''
           }));
           setFetchedTeachers(mapped);
         }

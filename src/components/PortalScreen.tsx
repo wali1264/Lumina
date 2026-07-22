@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, Sparkles, Search, Filter, Copy, Check, MapPin, 
   Star, Menu, LogIn, UserPlus, ShieldAlert, Award, ArrowRight,
-  BookMarked, HelpCircle, GraduationCap, Users, Calendar, Heart
+  BookMarked, HelpCircle, GraduationCap, Users, Calendar, Heart, User
 } from 'lucide-react';
 import { Course, User as UserType, Rating } from '../types';
 import AuthScreen from './AuthScreen';
@@ -555,12 +555,18 @@ export default function PortalScreen({
                       <div key={t.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 flex flex-col justify-between">
                         <div className="space-y-3">
                           <div className="flex items-start gap-3">
-                            <img 
-                              src={t.avatarUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=100'} 
-                              alt={t.name}
-                              className="w-12 h-12 rounded-xl object-cover border border-slate-200"
-                              referrerPolicy="no-referrer"
-                            />
+                            {t.avatarUrl ? (
+                              <img 
+                                src={t.avatarUrl} 
+                                alt={t.name}
+                                className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                                <User size={24} />
+                              </div>
+                            )}
                             <div>
                               <h4 className="text-sm font-black text-slate-950 flex items-center gap-1.5">
                                 {t.name}

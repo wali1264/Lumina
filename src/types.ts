@@ -117,10 +117,11 @@ export interface DirectMessage {
   senderRole: 'student' | 'teacher';
   receiverId: string;
   content: string;
-  attachmentType?: 'image' | 'audio' | 'document';
+  attachmentType?: 'image' | 'audio' | 'document' | 'voice';
   attachmentUrl?: string; // base64 string
   fileName?: string;
   createdAt: string;
+  isDeleted?: boolean;
 }
 
 export interface Rating {

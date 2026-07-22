@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { motion } from 'motion/react';
 import {
   BookOpen, Sparkles, Send, Volume2, Mic, AlertTriangle, CheckCircle2, Award,
   Clock, Check, X, ShieldAlert, BookMarked, Eye, LayoutGrid, Image as ImageIcon,
   Flame, HelpCircle, FileText, Code, ArrowLeft, ChevronLeft, ChevronRight, Bell,
   VolumeX, Youtube, Tv, Download, GraduationCap, CheckSquare, Paperclip, File, Trash2, Star,
-  RotateCw, MessageSquare
+  RotateCw, MessageSquare, User
 } from 'lucide-react';
 import { User as UserType, Lesson, Submission, Question, ChatMessage, AnswerType, Course, CourseEnrollment, LessonImage, DirectMessage, Rating } from '../types';
 import DrawingCanvas from './DrawingCanvas';
@@ -13,6 +14,8 @@ import AudioRecorder from './AudioRecorder';
 import AdvancedCodeEditor from './AdvancedCodeEditor';
 import NotebookCameraCapture from './NotebookCameraCapture';
 import DbSyncIndicator from './DbSyncIndicator';
+import { compressImageFile } from '../utils/imageCompressor';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 
 interface StudentPanelProps {
   currentUser: UserType;
@@ -24,6 +27,7 @@ interface StudentPanelProps {
   directMessages: DirectMessage[];
   ratings?: Rating[];
   onSendDirectMessage: (newMsg: DirectMessage) => void;
+  onDeleteDirectMessage?: (msgId: string) => void;
   onEnrollStudent: (courseId: string, studentId: string, studentName: string) => void;
   onAddSubmission: (newSub: Submission) => void;
   onAddRating?: (rating: Rating) => void;
@@ -78,6 +82,7 @@ export default function StudentPanel({
   directMessages,
   ratings = [],
   onSendDirectMessage,
+  onDeleteDirectMessage,
   onEnrollStudent,
   onAddSubmission,
   onAddRating,
@@ -422,7 +427,7 @@ export default function StudentPanel({
       } else if (userMsgLower.includes('صدا') || userMsgLower.includes('پادکست') || userMsgLower.includes('توضیح صوتی')) {
         mentorMsg.audioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
       } else if (userMsgLower.includes('عکس') || userMsgLower.includes('نمونه') || userMsgLower.includes('طرح')) {
-        mentorMsg.image = 'https://images.unsplash.com/photo-1541462608141-27b2c74530a3?auto=format&fit=crop&w=600&q=80';
+        mentorMsg.text += '\n\n*(نمونه تصویر یا طرح در صورت آپلود فایل از سوی شما نمایش داده خواهد شد.)*';
       }
 
       setVardakChatMessages(prev => [...prev, mentorMsg]);
@@ -719,59 +724,16 @@ export default function StudentPanel({
   const [isSendingChatMessage, setIsSendingChatMessage] = useState(false);
 
   // Student-Teacher Messaging states
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [voiceSeconds, setVoiceSeconds] = useState(0);
-  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const studentVoiceRecorder = useVoiceRecorder();
   const [playingDmMid, setPlayingDmMid] = useState<string | null>(null);
   const dmAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  const compressAndConvertImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800;
-          const MAX_HEIGHT = 800;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-
-          // Compress quality to 70% JPEG
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-          resolve(dataUrl);
-        };
-        img.onerror = (err) => reject(err);
-      };
-      reader.onerror = (err) => reject(err);
-    });
-  };
 
   const handleFileAttachment = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'document') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert("حجم فایل ارسالی نباید بیشتر از ۵ مگابایت باشد.");
+    if (file.size > 10 * 1024 * 1024) {
+      alert("حجم فایل ارسالی نباید بیشتر از ۱۰ مگابایت باشد.");
       return;
     }
 
@@ -781,7 +743,7 @@ export default function StudentPanel({
 
     try {
       if (type === 'image') {
-        const compressedBase64 = await compressAndConvertImage(file);
+        const compressedBase64 = await compressImageFile(file, 1000, 1000, 0.7);
         const msg: DirectMessage = {
           id: 'dm_' + Date.now(),
           senderId: currentUser.id,
@@ -821,45 +783,34 @@ export default function StudentPanel({
     }
   };
 
-  const startVoiceRecording = () => {
-    setIsRecordingVoice(true);
-    setVoiceSeconds(0);
-    recordingIntervalRef.current = setInterval(() => {
-      setVoiceSeconds(prev => prev + 1);
-    }, 1000);
+  const startVoiceRecording = async () => {
+    await studentVoiceRecorder.startRecording();
   };
 
-  const stopAndSendVoiceRecording = () => {
-    if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
-    setIsRecordingVoice(false);
-    
-    // Get active course and teacher
-    const activeCourse = courses.find(c => c.id === activeLesson.courseId);
-    const teacherId = activeCourse?.teacherId || 'teacher_1';
+  const stopAndSendVoiceRecording = async () => {
+    const res = await studentVoiceRecorder.stopRecording();
+    if (res && res.base64) {
+      const activeCourse = courses.find(c => c.id === activeLesson.courseId);
+      const teacherId = activeCourse?.teacherId || 'teacher_1';
 
-    // Simulate high-quality compressed audio base64 payload
-    const simulatedVoiceBase64 = 'data:audio/mp3;base64,SIMULATED_COMPRESSED_AUDIO_DATA_FOR_CHAT';
-    
-    const msg: DirectMessage = {
-      id: 'dm_' + Date.now(),
-      senderId: currentUser.id,
-      senderName: currentUser.name,
-      senderRole: 'student',
-      receiverId: teacherId,
-      content: `پیام صوتی (${voiceSeconds} ثانیه)`,
-      attachmentType: 'audio',
-      attachmentUrl: simulatedVoiceBase64,
-      fileName: `voice_${Date.now()}.mp3`,
-      createdAt: new Date().toISOString()
-    };
-    onSendDirectMessage(msg);
-    setVoiceSeconds(0);
+      const msg: DirectMessage = {
+        id: 'dm_' + Date.now(),
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        senderRole: 'student',
+        receiverId: teacherId,
+        content: `پیام صوتی (${res.duration} ثانیه)`,
+        attachmentType: 'audio',
+        attachmentUrl: res.base64,
+        fileName: `voice_${Date.now()}.webm`,
+        createdAt: new Date().toISOString()
+      };
+      onSendDirectMessage(msg);
+    }
   };
 
   const cancelVoiceRecording = () => {
-    if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
-    setIsRecordingVoice(false);
-    setVoiceSeconds(0);
+    studentVoiceRecorder.cancelRecording();
   };
 
   const handleSendDirectMsg = () => {
@@ -894,10 +845,7 @@ export default function StudentPanel({
       dmAudioRef.current.pause();
     }
 
-    // Since we simulate voice files, let's play a cute beep sound or mock audio playback if browser cannot play simulated string
-    const soundUrl = url.includes('SIMULATED') ? 'https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav' : url;
-    
-    dmAudioRef.current = new Audio(soundUrl);
+    dmAudioRef.current = new Audio(url);
     dmAudioRef.current.onended = () => {
       setPlayingDmMid(null);
     };
@@ -1110,16 +1058,19 @@ export default function StudentPanel({
       alertTeacher: isStruggling
     };
 
-    // Simulated short timeout
-    setTimeout(() => {
-      onAddSubmission(newSub);
+    try {
+      await onAddSubmission(newSub);
       setIsSubmittingAnswers(false);
       setSubmissionSuccessMessage(
         isStruggling 
           ? 'تکالیف شما با موفقیت ثبت شد! به علت دفعات بالای تلاش شما، استاد در جریان وضعیت قرار گرفت تا در یادگیری چالش به صورت اختصاصی به شما کمک کند.' 
           : 'تکالیف شما با موفقیت برای تصحیح و ثبت نمره نهایی به استاد ارسال شد!'
       );
-    }, 1000);
+    } catch (err: any) {
+      console.error('Submission error:', err);
+      setIsSubmittingAnswers(false);
+      setDailyLimitError('خطا در ثبت و ارسال پاسخ‌ها در پایگاه داده. لطفاً اتصال اینترنت خود را بررسی کرده و دوباره تلاش کنید.');
+    }
   };
 
   // AI Tutor Copilot Chat Logic
@@ -1312,11 +1263,17 @@ export default function StudentPanel({
         {/* Locked Bottom Container */}
         <div className="pt-4 border-t border-slate-100 shrink-0">
           <div className="flex items-center gap-2 mb-3">
-            <img
-              src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&q=80&w=100'}
-              alt={currentUser.name}
-              className="w-8 h-8 rounded-full border border-slate-200 object-cover"
-            />
+            {currentUser.avatarUrl ? (
+              <img
+                src={currentUser.avatarUrl}
+                alt={currentUser.name}
+                className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center shrink-0">
+                <GraduationCap size={16} />
+              </div>
+            )}
             <div>
               <div className="text-[10px] font-bold text-slate-900 leading-none">{currentUser.name}</div>
               <span className="text-[8px] text-slate-400 mt-0.5 block">شاگرد سخت‌کوش</span>
@@ -2439,13 +2396,15 @@ export default function StudentPanel({
                             {isCompleted ? (
                               <button
                                 disabled
-                                className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black transition cursor-not-allowed shadow flex items-center justify-center gap-1.5"
+                                className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-xs font-black transition cursor-not-allowed shadow flex items-center justify-center gap-2"
                               >
-                                <CheckCircle2 size={16} />
+                                <CheckCircle2 size={18} />
                                 <span>✓ چالش‌های این درس با موفقیت تایید و ثبت نهایی شده است</span>
                               </button>
                             ) : (
-                              <button
+                              <motion.button
+                                whileHover={isSubmittingAnswers || isDailyLimitReached ? {} : { scale: 1.01 }}
+                                whileTap={isSubmittingAnswers || isDailyLimitReached ? {} : { scale: 0.99 }}
                                 onClick={() => {
                                   if (isDailyLimitReached) {
                                     setDailyLimitError('شما امروز دو تا چالش را حل کردی و چالش‌های درس سوم را نمی‌توانی حل کنی، باید صبر کنی فردا حلش کنی');
@@ -2454,18 +2413,32 @@ export default function StudentPanel({
                                   handleStudentSubmit(activeLesson);
                                 }}
                                 disabled={isSubmittingAnswers || isDailyLimitReached}
-                                className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                                className={`w-full py-3.5 text-white rounded-xl text-xs font-black transition-all duration-200 shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                  isSubmittingAnswers 
+                                    ? 'bg-indigo-700 animate-pulse' 
+                                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                                }`}
                               >
-                                {isSubmittingAnswers 
-                                  ? 'در حال ارسال پاسخ‌ها...' 
-                                  : isPending
-                                    ? 'به‌روزرسانی و ارسال مجدد پاسخ‌ها (ویرایش پاسخ قبلی)'
-                                    : isTeacherTryAgain 
-                                      ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
-                                      : lastSub?.assistantTryAgain
-                                        ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
-                                        : 'ارسال تمامی پاسخ‌ها به مدرس'}
-                              </button>
+                                {isSubmittingAnswers ? (
+                                  <>
+                                    <RotateCw size={16} className="animate-spin" />
+                                    <span>در حال اتصال و ثبت پاسخ‌ها در پایگاه داده...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Send size={16} className="rotate-180" />
+                                    <span>
+                                      {isPending
+                                        ? 'به‌روزرسانی و ارسال مجدد پاسخ‌ها (ویرایش پاسخ قبلی)'
+                                        : isTeacherTryAgain 
+                                          ? 'ارسال مجدد پاسخ‌های تصحیح‌شده به مدرس' 
+                                          : lastSub?.assistantTryAgain
+                                            ? 'ارسال مجدد پاسخ‌های اصلاح‌شده به استادیار/استاد'
+                                            : 'ارسال تمامی پاسخ‌ها به مدرس'}
+                                    </span>
+                                  </>
+                                )}
+                              </motion.button>
                             )}
                           </>
                         );
@@ -2517,6 +2490,7 @@ export default function StudentPanel({
 
                         {myConversations.map((msg) => {
                           const isMe = msg.senderId === currentUser.id;
+                          const isMsgDeleted = msg.isDeleted || msg.content === 'این پیام حذف شده است';
                           return (
                             <div
                               key={msg.id}
@@ -2531,11 +2505,17 @@ export default function StudentPanel({
                               </div>
                               
                               <div className="flex flex-col space-y-1">
-                                <div className={`p-3 rounded-2xl text-[11px] leading-relaxed font-semibold shadow-sm ${
-                                  isMe
-                                    ? 'bg-indigo-600 text-white rounded-tr-none'
-                                    : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
-                                }`}>
+                                {isMsgDeleted ? (
+                                  <div className="p-2.5 rounded-2xl text-[11px] leading-relaxed font-semibold bg-slate-100 text-slate-400 italic flex items-center gap-1.5 border border-slate-200/60 shadow-2xs">
+                                    <Trash2 size={12} className="opacity-60 shrink-0" />
+                                    <span>این پیام حذف شده است</span>
+                                  </div>
+                                ) : (
+                                  <div className={`p-3 rounded-2xl text-[11px] leading-relaxed font-semibold shadow-sm ${
+                                    isMe
+                                      ? 'bg-indigo-600 text-white rounded-tr-none'
+                                      : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
+                                  }`}>
                                   
                                   {/* Text messages */}
                                   {msg.attachmentType !== 'image' && msg.attachmentType !== 'audio' && msg.attachmentType !== 'document' && (
@@ -2552,12 +2532,25 @@ export default function StudentPanel({
                                         onClick={() => setPreviewImageUrl(msg.attachmentUrl || null)}
                                         className="max-w-[200px] md:max-w-xs rounded-lg border border-white/20 hover:opacity-90 transition cursor-pointer max-h-48 object-cover"
                                       />
-                                      <p className="text-[10px] opacity-90 font-bold whitespace-pre-wrap">{msg.content}</p>
+                                      <div className="flex items-center justify-between gap-2 pt-1">
+                                        <p className="text-[10px] opacity-90 font-bold whitespace-pre-wrap">{msg.content}</p>
+                                        <a
+                                          href={msg.attachmentUrl}
+                                          download={msg.fileName || 'image.jpg'}
+                                          className={`text-[10px] px-2.5 py-1 rounded-lg flex items-center gap-1 font-extrabold transition shrink-0 ${
+                                            isMe ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                                          }`}
+                                          title="دانلود تصویر"
+                                        >
+                                          <Download size={12} />
+                                          دانلود
+                                        </a>
+                                      </div>
                                     </div>
                                   )}
 
-                                  {/* Voice message */}
-                                  {msg.attachmentType === 'audio' && msg.attachmentUrl && (
+                                  {/* Voice / Audio message */}
+                                  {(msg.attachmentType === 'audio' || msg.attachmentType === 'voice') && msg.attachmentUrl && (
                                     <div className="flex items-center gap-3.5 py-1 min-w-[180px]" dir="ltr">
                                       <button
                                         type="button"
@@ -2614,9 +2607,24 @@ export default function StudentPanel({
                                     </div>
                                   )}
 
-                                </div>
+                                  </div>
+                                )}
                                 
-                                <div className="text-[8px] text-slate-400 font-bold flex items-center gap-1 px-1 justify-end">
+                                <div className="text-[8px] text-slate-400 font-bold flex items-center gap-1.5 px-1 justify-end">
+                                  {isMe && !isMsgDeleted && onDeleteDirectMessage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm('آیا از حذف این پیام برای همه اطمینان دارید؟')) {
+                                          onDeleteDirectMessage(msg.id);
+                                        }
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-rose-600 transition rounded-md hover:bg-rose-50"
+                                      title="حذف پیام"
+                                    >
+                                      <Trash2 size={11} />
+                                    </button>
+                                  )}
                                   <span>{new Date(msg.createdAt).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}</span>
                                   {isMe && <Check size={8} className="text-indigo-500" />}
                                 </div>
@@ -2640,13 +2648,13 @@ export default function StudentPanel({
                       <div className="p-3 border-t border-slate-200 bg-white" dir="rtl">
                         <div className="max-w-4xl mx-auto">
                           
-                          {isRecordingVoice ? (
-                            <div className="flex items-center justify-between bg-rose-50 border border-rose-200 p-2 rounded-2xl animate-pulse">
+                          {studentVoiceRecorder.isRecording ? (
+                            <div className="flex items-center justify-between bg-rose-50 border border-rose-200 p-2.5 rounded-2xl animate-pulse">
                               <div className="flex items-center gap-2.5">
                                 <span className="w-2.5 h-2.5 rounded-full bg-rose-600 block animate-bounce"></span>
-                                <span className="text-xs font-black text-rose-700">در حال ضبط صدای شما...</span>
-                                <span className="text-xs font-mono font-bold bg-rose-200/60 px-2 py-0.5 rounded-full text-rose-950">
-                                  {Math.floor(voiceSeconds / 60)}:{(voiceSeconds % 60).toString().padStart(2, '0')}
+                                <span className="text-xs font-black text-rose-700">در حال ضبط صدای شما با میکروفون...</span>
+                                <span className="text-xs font-mono font-bold bg-rose-200/60 px-2 py-0.5 rounded-full text-rose-950 dir-ltr">
+                                  {Math.floor(studentVoiceRecorder.recordingSeconds / 60)}:{(studentVoiceRecorder.recordingSeconds % 60).toString().padStart(2, '0')}
                                 </span>
                               </div>
                               

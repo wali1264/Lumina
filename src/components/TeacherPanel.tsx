@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import { User as UserType, Lesson, Submission, Question, AnswerType, LessonImage, Course, CourseEnrollment, DirectMessage, Rating } from '../types';
 import AudioRecorder from './AudioRecorder';
-import { Paperclip, File, Download, UploadCloud, RefreshCw, Folder, FolderOpen, ArrowRight } from 'lucide-react';
+import { Paperclip, File, Download, UploadCloud, RefreshCw, Folder, FolderOpen, ArrowRight, Settings, ArrowUp, ArrowDown, GripVertical, ListOrdered, Sliders } from 'lucide-react';
 import DbSyncIndicator from './DbSyncIndicator';
+import { compressImageFile } from '../utils/imageCompressor';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 
 interface TeacherPanelProps {
   currentUser: UserType;
@@ -20,11 +22,13 @@ interface TeacherPanelProps {
   enrollments: CourseEnrollment[];
   directMessages: DirectMessage[];
   onSendDirectMessage: (newMsg: DirectMessage) => void;
+  onDeleteDirectMessage?: (msgId: string) => void;
   onAddCourse: (newCourse: Course) => void;
   onUpdateCourse: (updatedCourse: Course) => void;
   onDeleteCourse: (courseId: string) => void;
   onAddLesson: (newLesson: Lesson) => void;
   onUpdateLesson: (updatedLesson: Lesson) => void;
+  onReorderLessons?: (orderedLessons: Lesson[]) => Promise<void>;
   onDeleteLesson: (lessonId: string) => void;
   onApproveEnrollment: (enrollmentId: string, accept: boolean) => void;
   onApproveStudent: (studentId: string, accept: boolean) => void;
@@ -191,8 +195,8 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 
 export default function TeacherPanel({
-  currentUser, users, courses, lessons, submissions, enrollments, directMessages, onSendDirectMessage,
-  onAddCourse, onUpdateCourse, onDeleteCourse, onAddLesson, onUpdateLesson, onDeleteLesson,
+  currentUser, users, courses, lessons, submissions, enrollments, directMessages, onSendDirectMessage, onDeleteDirectMessage,
+  onAddCourse, onUpdateCourse, onDeleteCourse, onAddLesson, onUpdateLesson, onReorderLessons, onDeleteLesson,
   onApproveEnrollment, onApproveStudent, onUpdateStudentLevel, onGradeSubmission, onLogout,
   isLoadingDb = false,
   isDbLoaded = false,
@@ -202,6 +206,27 @@ export default function TeacherPanel({
   
   // Tab control
   const [activeTab, setActiveTab] = useState<'dashboard' | 'courses' | 'lessons' | 'submissions' | 'approvals' | 'messages' | 'backup'>('dashboard');
+
+  // Backup & Settings Sub-tabs
+  const [backupSubTab, setBackupSubTab] = useState<'backup' | 'settings'>('backup');
+  const [selectedSortCourseId, setSelectedSortCourseId] = useState<string>('');
+  const [sortLessonsList, setSortLessonsList] = useState<Lesson[]>([]);
+  const [isSavingSortOrder, setIsSavingSortOrder] = useState<boolean>(false);
+  const [sortSuccessMsg, setSortSuccessMsg] = useState<string | null>(null);
+  const [draggedSortIndex, setDraggedSortIndex] = useState<number | null>(null);
+  const [dragOverSortIndex, setDragOverSortIndex] = useState<number | null>(null);
+  const [isSortOrderDirty, setIsSortOrderDirty] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedSortCourseId && !isSortOrderDirty) {
+      const courseLss = lessons
+        .filter((l) => l.courseId === selectedSortCourseId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+      setSortLessonsList(courseLss);
+    } else if (!selectedSortCourseId && courses.length > 0) {
+      setSelectedSortCourseId(courses[0].id);
+    }
+  }, [selectedSortCourseId, lessons, courses, isSortOrderDirty]);
 
   // Submissions state
   const [activeSubId, setActiveSubId] = useState<string | null>(null);
@@ -231,6 +256,7 @@ export default function TeacherPanel({
   });
 
   // Teacher-Student direct chat states
+  const teacherVoiceRecorder = useVoiceRecorder();
   const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | null>(null);
   const [teacherChatMessage, setTeacherChatMessage] = useState('');
   const [teacherChatAttachment, setTeacherChatAttachment] = useState<{ type: 'image' | 'voice' | 'document'; dataUrl: string; name?: string } | null>(null);
@@ -533,9 +559,7 @@ export default function TeacherPanel({
           content: data.content,
           level: aiLevel,
           images: [],
-          lessonImages: [
-            { url: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&q=80&w=600', placement: 'inline' }
-          ],
+          lessonImages: [],
           questions: (data.questions || []).map((q: any, idx: number) => ({
             id: `q_gen_${Date.now()}_${idx}`,
             title: q.title,
@@ -1015,11 +1039,17 @@ export default function TeacherPanel({
 
         <div className="pt-4 border-t border-slate-100">
           <div className="flex items-center gap-2 mb-3">
-            <img
-              src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=100'}
-              alt={currentUser.name}
-              className="w-8 h-8 rounded-full border border-slate-200 object-cover"
-            />
+            {currentUser.avatarUrl ? (
+              <img
+                src={currentUser.avatarUrl}
+                alt={currentUser.name}
+                className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                <User size={16} />
+              </div>
+            )}
             <div>
               <div className="text-[10px] font-bold text-slate-900 leading-none">{currentUser.name}</div>
               <span className="text-[8px] text-emerald-600 font-extrabold mt-0.5 block">استاد برتر</span>
@@ -1283,7 +1313,13 @@ export default function TeacherPanel({
                     return (
                       <div key={student.id} className="bg-white p-3.5 rounded-2xl border border-rose-200/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                         <div className="flex items-center gap-2.5">
-                          <img src={student.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                          {student.avatarUrl ? (
+                            <img src={student.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+                              <GraduationCap size={15} />
+                            </div>
+                          )}
                           <div>
                             <span className="font-extrabold text-slate-800 text-xs block">{student.name}</span>
                             <span className="text-[9px] text-rose-600 font-semibold block mt-0.5">ناموفق در {lessonName}</span>
@@ -1326,7 +1362,13 @@ export default function TeacherPanel({
                     return (
                       <div key={student.id} className="bg-white p-3.5 rounded-2xl border border-emerald-200/50 flex justify-between items-center">
                         <div className="flex items-center gap-2.5">
-                          <img src={student.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                          {student.avatarUrl ? (
+                            <img src={student.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-200">
+                              <GraduationCap size={15} />
+                            </div>
+                          )}
                           <div>
                             <span className="font-extrabold text-slate-800 text-xs block">{student.name}</span>
                             <span className="text-[9px] text-emerald-600 font-semibold block mt-0.5">سطح: {student.level === 'beginner' ? 'مبتدی' : student.level === 'intermediate' ? 'متوسطه' : 'پیشرفته'}</span>
@@ -1364,7 +1406,13 @@ export default function TeacherPanel({
                 {pendingStudents.map((student) => (
                   <div key={student.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                     <div className="flex items-center gap-3">
-                      <img src={student.avatarUrl} alt="" className="w-10 h-10 rounded-full border border-slate-200 object-cover" />
+                      {student.avatarUrl ? (
+                        <img src={student.avatarUrl} alt="" className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center shrink-0">
+                          <GraduationCap size={18} />
+                        </div>
+                      )}
                       <div>
                         <span className="font-extrabold text-slate-800 text-xs block">{student.name}</span>
                         <span className="text-[10px] text-slate-500 mt-1 block font-medium">ایمیل: {student.email} | سطح انتخابی: <strong className="text-indigo-600">{student.level}</strong></span>
@@ -1401,7 +1449,13 @@ export default function TeacherPanel({
                 {acceptedStudents.map((student) => (
                   <div key={student.id} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between shadow-sm">
                     <div className="flex items-center gap-3">
-                      <img src={student.avatarUrl} alt="" className="w-9 h-9 rounded-full border border-slate-100 object-cover" />
+                      {student.avatarUrl ? (
+                        <img src={student.avatarUrl} alt="" className="w-9 h-9 rounded-full border border-slate-100 object-cover shrink-0" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                          <GraduationCap size={16} />
+                        </div>
+                      )}
                       <div>
                         <span className="font-extrabold text-slate-800 text-xs block">{student.name}</span>
                         <span className="text-[9px] text-slate-400 block mt-0.5">سطح: {student.level}</span>
@@ -1879,25 +1933,38 @@ export default function TeacherPanel({
               </select>
             </div>
 
-            {!selectedCourseFilter ? (
-              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-10 text-center space-y-3">
-                <FolderOpen className="mx-auto text-slate-400" size={48} />
-                <h3 className="text-sm font-bold text-slate-800">هیچ دوره‌ای انتخاب نشده است</h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-                  هنوز هیچ دوره‌ای انتخاب نشده است. لطفاً برای مشاهده، طراحی و مدیریت درس‌ها، یک دوره آموزشی از منوی کشویی بالا انتخاب کنید. با انتخاب هر دوره، فقط درس‌های متعلق به همان دوره از پایگاه داده بارگذاری خواهند شد.
-                </p>
-              </div>
-            ) : teacherLessons.length === 0 ? (
-              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-10 text-center space-y-3">
-                <HelpCircle className="mx-auto text-slate-400" size={48} />
-                <h3 className="text-sm font-bold text-slate-800">هیچ درسی برای این دوره یافت نشد</h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-                  هنوز هیچ درسی برای این دوره آموزشی در پایگاه داده وجود ندارد. با کلیک بر روی دکمه «ایجاد درس جدید» بالا می‌توانید اولین درس را طراحی کنید.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {teacherLessons.map((lesson) => (
+            {(() => {
+              const displayedCourseLessons = selectedCourseFilter 
+                ? teacherLessons.filter(l => l.courseId === selectedCourseFilter) 
+                : [];
+
+              if (!selectedCourseFilter) {
+                return (
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-10 text-center space-y-3">
+                    <FolderOpen className="mx-auto text-slate-400" size={48} />
+                    <h3 className="text-sm font-bold text-slate-800">هیچ دوره‌ای انتخاب نشده است</h3>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                      هنوز هیچ دوره‌ای انتخاب نشده است. لطفاً برای مشاهده، طراحی و مدیریت درس‌ها، یک دوره آموزشی از منوی کشویی بالا انتخاب کنید.
+                    </p>
+                  </div>
+                );
+              }
+
+              if (displayedCourseLessons.length === 0) {
+                return (
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-10 text-center space-y-3">
+                    <HelpCircle className="mx-auto text-slate-400" size={48} />
+                    <h3 className="text-sm font-bold text-slate-800">هیچ درسی برای این دوره یافت نشد</h3>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                      هنوز هیچ درسی برای این دوره آموزشی در پایگاه داده وجود ندارد. با کلیک بر روی دکمه «ایجاد درس جدید» بالا می‌توانید اولین درس را طراحی کنید.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {displayedCourseLessons.map((lesson) => (
                   <div key={lesson.id} className="bg-white border border-slate-200 p-5 rounded-3xl flex flex-col justify-between hover:shadow-md transition-all">
                     <div>
                       <div className="flex items-center justify-between mb-3">
@@ -1964,8 +2031,9 @@ export default function TeacherPanel({
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            );
+          })()}
+        </div>
         )}
 
         {/* TAB 4: SUBMISSIONS */}
@@ -2586,11 +2654,17 @@ export default function TeacherPanel({
                             : 'hover:bg-slate-50 bg-white'
                         }`}
                       >
-                        <img 
-                          src={student.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100'} 
-                          alt={student.name}
-                          className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
-                        />
+                        {student.avatarUrl ? (
+                          <img 
+                            src={student.avatarUrl} 
+                            alt={student.name}
+                            className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                            <GraduationCap size={18} />
+                          </div>
+                        )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-black text-slate-850 truncate">{student.name}</span>
@@ -2622,11 +2696,17 @@ export default function TeacherPanel({
                     {/* Active Chat Header */}
                     <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-3">
-                        <img
-                          src={selectedStudent.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100'}
-                          alt={selectedStudent.name}
-                          className="w-9 h-9 rounded-full border border-slate-200 object-cover"
-                        />
+                        {selectedStudent.avatarUrl ? (
+                          <img
+                            src={selectedStudent.avatarUrl}
+                            alt={selectedStudent.name}
+                            className="w-9 h-9 rounded-full border border-slate-200 object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                            <GraduationCap size={16} />
+                          </div>
+                        )}
                         <div>
                           <h4 className="text-xs font-black text-slate-800">{selectedStudent.name}</h4>
                           <span className="text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full font-black mt-0.5 inline-block">
@@ -2644,48 +2724,91 @@ export default function TeacherPanel({
                     <div className="flex-1 overflow-y-auto p-6 space-y-4">
                       {activeMessages.map((msg) => {
                         const isMe = msg.senderId === currentUser.id;
+                        const isMsgDeleted = msg.isDeleted || msg.content === 'این پیام حذف شده است';
                         const msgSenderUser = users.find(u => u.id === msg.senderId);
-                        const msgSenderAvatarUrl = msgSenderUser?.avatarUrl || (msg.senderRole === 'teacher' ? 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100');
+                        const msgSenderAvatarUrl = msgSenderUser?.avatarUrl || '';
 
                         return (
                           <div key={msg.id} className={`flex gap-3 max-w-[85%] ${isMe ? 'mr-auto flex-row-reverse' : 'ml-auto'}`}>
-                            <img
-                              src={msgSenderAvatarUrl}
-                              alt={msg.senderName}
-                              className="w-7 h-7 rounded-full object-cover shrink-0 border border-slate-150"
-                            />
-                            <div className="space-y-1">
-                              <span className="text-[8px] text-slate-400 font-bold block px-1">
-                                {isMe ? 'من' : msg.senderName} • {new Date(msg.createdAt).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                              <div className={`p-3.5 rounded-2xl text-xs leading-relaxed font-semibold ${
-                                isMe 
-                                  ? 'bg-indigo-600 text-white rounded-tr-none' 
-                                  : 'bg-white text-slate-850 border border-slate-200 rounded-tl-none shadow-sm'
+                            {msgSenderAvatarUrl ? (
+                              <img
+                                src={msgSenderAvatarUrl}
+                                alt={msg.senderName}
+                                className="w-7 h-7 rounded-full object-cover shrink-0 border border-slate-150"
+                              />
+                            ) : (
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold border ${
+                                msg.senderRole === 'teacher' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
                               }`}>
+                                {msg.senderRole === 'teacher' ? <User size={14} /> : <GraduationCap size={14} />}
+                              </div>
+                            )}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between gap-2 px-1">
+                                <span className="text-[8px] text-slate-400 font-bold block">
+                                  {isMe ? 'من' : msg.senderName} • {new Date(msg.createdAt).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                {isMe && !isMsgDeleted && onDeleteDirectMessage && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (confirm('آیا از حذف این پیام برای همه اطمینان دارید؟')) {
+                                        onDeleteDirectMessage(msg.id);
+                                      }
+                                    }}
+                                    className="p-0.5 text-slate-400 hover:text-rose-600 transition rounded-md hover:bg-rose-50"
+                                    title="حذف پیام"
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                )}
+                              </div>
+
+                              {isMsgDeleted ? (
+                                <div className="p-2.5 rounded-2xl text-xs leading-relaxed font-semibold bg-slate-100 text-slate-400 italic flex items-center gap-1.5 border border-slate-200/60 shadow-2xs">
+                                  <Trash2 size={12} className="opacity-60 shrink-0" />
+                                  <span>این پیام حذف شده است</span>
+                                </div>
+                              ) : (
+                                <div className={`p-3.5 rounded-2xl text-xs leading-relaxed font-semibold ${
+                                  isMe 
+                                    ? 'bg-indigo-600 text-white rounded-tr-none' 
+                                    : 'bg-white text-slate-850 border border-slate-200 rounded-tl-none shadow-sm'
+                                }`}>
                                 {msg.content && <p className="whitespace-pre-line">{msg.content}</p>}
                                 
-                                {msg.attachmentType === 'image' && (
-                                  <div className="mt-2 rounded-lg overflow-hidden border border-slate-200/50 bg-slate-50 p-1">
+                                {msg.attachmentType === 'image' && msg.attachmentUrl && (
+                                  <div className="mt-2 rounded-lg overflow-hidden border border-slate-200/50 bg-slate-50 p-1 space-y-1.5">
                                     <img src={msg.attachmentUrl} className="max-h-60 rounded-md object-contain mx-auto" alt="تصویر ارسالی" />
+                                    <div className="flex justify-end p-1">
+                                      <a
+                                        href={msg.attachmentUrl}
+                                        download={msg.fileName || 'image.jpg'}
+                                        className="text-[10px] px-2.5 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1 transition shadow-xs font-bold"
+                                        title="دانلود تصویر"
+                                      >
+                                        <Download size={12} />
+                                        دانلود تصویر
+                                      </a>
+                                    </div>
                                   </div>
                                 )}
 
-                                {msg.attachmentType === 'audio' && (
-                                  <div className={`mt-2 flex items-center gap-2 rounded-xl p-2.5 ${isMe ? 'bg-indigo-700/80' : 'bg-slate-50 border border-slate-100'} min-w-[200px]`}>
+                                {(msg.attachmentType === 'audio' || msg.attachmentType === 'voice') && msg.attachmentUrl && (
+                                  <div className={`mt-2 flex items-center gap-2 rounded-xl p-2.5 ${isMe ? 'bg-indigo-700/80 text-white' : 'bg-slate-50 border border-slate-100 text-slate-800'} min-w-[200px]`}>
                                     <button 
                                       onClick={() => {
                                         const aud = new Audio(msg.attachmentUrl);
-                                        aud.play().catch(() => alert('پخش صدای فرستاده شده شبیه‌سازی شد!'));
+                                        aud.play().catch(err => console.error('Audio play error:', err));
                                       }}
                                       className="p-1.5 bg-indigo-500 text-white rounded-full hover:bg-indigo-400 shrink-0 transition"
+                                      title="پخش پیام صوتی"
                                     >
                                       <Volume2 size={12} />
                                     </button>
-                                    <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden relative">
-                                      <div className="absolute inset-y-0 right-0 w-2/3 bg-indigo-400 rounded-full" />
+                                    <div className="flex-1 min-w-0 text-right">
+                                      <span className="text-[10px] font-bold block">{msg.content || 'پیام صوتی'}</span>
                                     </div>
-                                    <span className="text-[8px] font-mono opacity-80">۰:۱۲</span>
                                   </div>
                                 )}
 
@@ -2704,8 +2827,9 @@ export default function TeacherPanel({
                                   </div>
                                 )}
                               </div>
-                            </div>
+                            )}
                           </div>
+                        </div>
                         );
                       })}
                       {activeMessages.length === 0 && (
@@ -2729,92 +2853,122 @@ export default function TeacherPanel({
                         </div>
                       )}
 
-                      <div className="flex items-center gap-2.5">
-                        {/* Image attachment */}
-                        <label className="p-2.5 bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 rounded-xl transition cursor-pointer shrink-0">
-                          <ImageIcon size={16} />
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const r = new FileReader();
-                                r.onload = (ev) => {
-                                  if (ev.target?.result) {
+                      {teacherVoiceRecorder.isRecording ? (
+                        <div className="flex items-center justify-between bg-rose-50 border border-rose-200 p-2.5 rounded-2xl animate-pulse">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 block animate-bounce"></span>
+                            <span className="text-xs font-black text-rose-700">در حال ضبط صدای مربی با میکروفون...</span>
+                            <span className="text-xs font-mono font-bold bg-rose-200/60 px-2 py-0.5 rounded-full text-rose-950 dir-ltr">
+                              {Math.floor(teacherVoiceRecorder.recordingSeconds / 60)}:{(teacherVoiceRecorder.recordingSeconds % 60).toString().padStart(2, '0')}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const res = await teacherVoiceRecorder.stopRecording();
+                                if (res && res.base64) {
+                                  setTeacherChatAttachment({
+                                    type: 'voice',
+                                    dataUrl: res.base64,
+                                    name: `voice_${Date.now()}.webm`
+                                  });
+                                }
+                              }}
+                              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black transition shadow flex items-center gap-1"
+                            >
+                              توقف و پیوست صدا
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => teacherVoiceRecorder.cancelRecording()}
+                              className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-[10px] font-bold transition"
+                            >
+                              لغو
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2.5">
+                          {/* Image attachment */}
+                          <label className="p-2.5 bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 rounded-xl transition cursor-pointer shrink-0">
+                            <ImageIcon size={16} />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  try {
+                                    const compressedBase64 = await compressImageFile(file, 1000, 1000, 0.7);
                                     setTeacherChatAttachment({
                                       type: 'image',
-                                      dataUrl: ev.target.result as string,
+                                      dataUrl: compressedBase64,
                                       name: file.name
                                     });
+                                  } catch (err) {
+                                    console.error("Error compressing image:", err);
                                   }
-                                };
-                                r.readAsDataURL(file);
-                              }
-                            }}
-                          />
-                        </label>
+                                }
+                              }}
+                            />
+                          </label>
 
-                        {/* Document attachment */}
-                        <label className="p-2.5 bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 rounded-xl transition cursor-pointer shrink-0">
-                          <Paperclip size={16} />
+                          {/* Document attachment */}
+                          <label className="p-2.5 bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 rounded-xl transition cursor-pointer shrink-0">
+                            <Paperclip size={16} />
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx,.txt"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const r = new FileReader();
+                                  r.onload = (ev) => {
+                                    if (ev.target?.result) {
+                                      setTeacherChatAttachment({
+                                        type: 'document',
+                                        dataUrl: ev.target.result as string,
+                                        name: file.name
+                                      });
+                                    }
+                                  };
+                                  r.readAsDataURL(file);
+                                }
+                              }}
+                            />
+                          </label>
+
+                          {/* Voice message button */}
+                          <button
+                            type="button"
+                            onClick={() => teacherVoiceRecorder.startRecording()}
+                            className="p-2.5 bg-slate-100 text-slate-500 hover:text-rose-600 hover:bg-rose-100 rounded-xl transition shrink-0"
+                            title="ضبط و ارسال پیام صوتی"
+                          >
+                            <Mic size={16} />
+                          </button>
+
                           <input
-                            type="file"
-                            accept=".pdf,.doc,.docx,.txt"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const r = new FileReader();
-                                r.onload = (ev) => {
-                                  if (ev.target?.result) {
-                                    setTeacherChatAttachment({
-                                      type: 'document',
-                                      dataUrl: ev.target.result as string,
-                                      name: file.name
-                                    });
-                                  }
-                                };
-                                r.readAsDataURL(file);
-                              }
-                            }}
+                            type="text"
+                            value={teacherChatMessage}
+                            onChange={(e) => setTeacherChatMessage(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                            placeholder="پیام خود را بنویسید (مانند چت در واتس‌اپ)..."
+                            className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-855 focus:outline-none"
                           />
-                        </label>
 
-                        {/* Simulated voice message */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTeacherChatAttachment({
-                              type: 'voice',
-                              dataUrl: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA',
-                              name: 'پیام صوتی مربی.wav'
-                            });
-                            alert('پیام صوتی با موفقیت شبیه‌سازی و پیوست شد! می‌توانید دکمه ارسال را بزنید.');
-                          }}
-                          className="p-2.5 bg-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-slate-200 rounded-xl transition shrink-0"
-                          title="ضبط و ارسال پیام صوتی"
-                        >
-                          <Mic size={16} />
-                        </button>
-
-                        <input
-                          type="text"
-                          value={teacherChatMessage}
-                          onChange={(e) => setTeacherChatMessage(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                          placeholder="پیام خود را بنویسید (مانند چت در واتس‌اپ)..."
-                          className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-855 focus:outline-none"
-                        />
-
-                        <button
-                          onClick={handleSend}
-                          className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition shrink-0"
-                        >
-                          <Send size={16} className="transform rotate-180" />
-                        </button>
-                      </div>
+                          <button
+                            onClick={handleSend}
+                            className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition shrink-0"
+                          >
+                            <Send size={16} className="transform rotate-180" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -2854,21 +3008,51 @@ export default function TeacherPanel({
               </div>
             </div>
 
-            {/* Main content grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              
-              {/* Export Panel */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 flex flex-col justify-between">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-                      <Download size={18} />
+            {/* Sub-tabs Navigation inside Backup / Settings */}
+            <div className="flex items-center gap-3 bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setBackupSubTab('backup')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                  backupSubTab === 'backup'
+                    ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <RefreshCw size={14} />
+                <span>پشتیبان‌گیری و انتقال دوره‌ها</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBackupSubTab('settings')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                  backupSubTab === 'settings'
+                    ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Settings size={14} />
+                <span>تنظیمات و مرتب‌سازی دروس</span>
+              </button>
+            </div>
+
+            {/* SUB-TAB 1: BACKUP & TRANSFER */}
+            {backupSubTab === 'backup' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* Export Panel */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 flex flex-col justify-between">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                        <Download size={18} />
+                      </div>
+                      <div>
+                        <h2 className="text-sm font-black text-slate-900">خروجی گرفتن و هدیه دوره‌ها</h2>
+                        <p className="text-[10px] text-slate-400 font-bold mt-0.5">دانلود محتوای آموزشی برای پشتیبان‌گیری شخصی یا اشتراک با همکاران</p>
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-sm font-black text-slate-900">خروجی گرفتن و هدیه دوره‌ها</h2>
-                      <p className="text-[10px] text-slate-400 font-bold mt-0.5">دانلود محتوای آموزشی برای پشتیبان‌گیری شخصی یا اشتراک با همکاران</p>
-                    </div>
-                  </div>
 
                   <div className="bg-slate-50 border border-slate-150 rounded-2xl p-4 space-y-3">
                     <p className="text-[10px] text-slate-600 font-black leading-relaxed">
@@ -3103,6 +3287,320 @@ export default function TeacherPanel({
               </div>
 
             </div>
+            )}
+
+            {/* SUB-TAB 2: SETTINGS & REORDERING */}
+            {backupSubTab === 'settings' && (
+              <div className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl border border-indigo-100/60">
+                      <ListOrdered size={22} />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-black text-slate-900">تنظیمات و مرتب‌سازی ترتیب دروس</h2>
+                      <p className="text-xs text-slate-500 font-medium mt-0.5">
+                        دوره مورد نظر را انتخاب کنید، چیدمان دروس را با جابه‌جایی یا کلیدهای جهت‌نما تغییر دهید و ذخیره کنید.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Course selection dropdown */}
+                  <div className="flex items-center gap-2.5 bg-slate-50 p-2 rounded-2xl border border-slate-200/70">
+                    <label className="text-xs font-black text-slate-700 shrink-0 mr-1">انتخاب دوره:</label>
+                    <select
+                      value={selectedSortCourseId}
+                      onChange={(e) => {
+                        setSelectedSortCourseId(e.target.value);
+                        setIsSortOrderDirty(false);
+                      }}
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 min-w-[200px]"
+                    >
+                      {teacherCourses.length === 0 ? (
+                        <option value="">هیچ دوره‌ای یافت نشد</option>
+                      ) : (
+                        teacherCourses.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.title}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Status Badges & Alerts */}
+                {sortSuccessMsg && (
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-bold flex items-center justify-between gap-2.5 animate-fadeIn shadow-xs">
+                    <div className="flex items-center gap-2.5">
+                      <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                      <span>{sortSuccessMsg}</span>
+                    </div>
+                  </div>
+                )}
+
+                {isSortOrderDirty && !sortSuccessMsg && (
+                  <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 animate-fadeIn shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping"></span>
+                      <span>شما تغییراتی در ترتیب دروس ایجاد کرده‌اید. برای اعمال نهایی در سیستم، دکمه ذخیره را فشار دهید.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSortOrderDirty(false);
+                        const courseLss = lessons
+                          .filter((l) => l.courseId === selectedSortCourseId)
+                          .sort((a, b) => (a.order || 0) - (b.order || 0));
+                        setSortLessonsList(courseLss);
+                      }}
+                      className="text-[11px] bg-amber-100 hover:bg-amber-200 text-amber-900 px-3 py-1 rounded-xl transition font-black"
+                    >
+                      بازنشانی تغییرات
+                    </button>
+                  </div>
+                )}
+
+                {/* Actions bar */}
+                {sortLessonsList.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sorted = [...sortLessonsList].sort((a, b) => {
+                            const getNum = (t: string) => {
+                              const match = t.match(/(\d+|[۰-۹]+)/);
+                              if (!match) return 9999;
+                              const faToEn = (str: string) => str.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
+                              return parseInt(faToEn(match[0]), 10);
+                            };
+                            return getNum(a.title) - getNum(b.title);
+                          });
+                          setSortLessonsList(sorted);
+                          setIsSortOrderDirty(true);
+                        }}
+                        className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-2 transition border border-indigo-200/60"
+                        title="مرتب‌سازی بر اساس شماره عنوان مانند درس ۱، درس ۲..."
+                      >
+                        <Sparkles size={14} />
+                        <span>مرتب‌سازی هوشمند بر اساس شماره عنوان (درس ۱، ۲، ۳...)</span>
+                      </button>
+
+                      {isSortOrderDirty && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSortOrderDirty(false);
+                            const courseLss = lessons
+                              .filter((l) => l.courseId === selectedSortCourseId)
+                              .sort((a, b) => (a.order || 0) - (b.order || 0));
+                            setSortLessonsList(courseLss);
+                          }}
+                          className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition"
+                        >
+                          لغو تغییرات
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isSavingSortOrder || !isSortOrderDirty}
+                      onClick={async () => {
+                        if (!onReorderLessons) return;
+                        setIsSavingSortOrder(true);
+                        setSortSuccessMsg(null);
+                        try {
+                          await onReorderLessons(sortLessonsList);
+                          setIsSortOrderDirty(false);
+                          setSortSuccessMsg('ترتیب دروس این دوره با موفقیت ذخیره شد و در پنل هنرجویان بروزرسانی گردید!');
+                          setTimeout(() => setSortSuccessMsg(null), 5000);
+                        } catch (err: any) {
+                          alert('خطا در ذخیره‌سازی ترتیب دروس: ' + (err.message || err));
+                        } finally {
+                          setIsSavingSortOrder(false);
+                        }
+                      }}
+                      className={`px-5 py-2.5 text-white rounded-xl text-xs font-black flex items-center gap-2 transition shadow-md ${
+                        isSortOrderDirty
+                          ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 cursor-pointer'
+                          : 'bg-slate-400 cursor-not-allowed shadow-none'
+                      } disabled:opacity-50`}
+                    >
+                      {isSavingSortOrder ? (
+                        <>
+                          <RefreshCw size={15} className="animate-spin" />
+                          <span>در حال ذخیره‌سازی در پایگاه داده...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save size={15} />
+                          <span>ذخیره ترتیب جدید دروس</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Lessons list for sorting */}
+                {sortLessonsList.length === 0 ? (
+                  <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-slate-400 text-xs font-bold">
+                    هیچ درسی برای این دوره یافت نشد.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-slate-500 font-bold px-1 flex items-center justify-between">
+                      <span>تعداد {sortLessonsList.length} درس در این دوره قرار دارد. می‌توانید با جابه‌جایی دستی (درگ و دراپ) یا تعیین شماره ردیف مستقیم، ترتیب دلخواه را تنظیم کنید:</span>
+                    </p>
+
+                    <div className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
+                      {sortLessonsList.map((lesson, idx) => {
+                        const isFirst = idx === 0;
+                        const isLast = idx === sortLessonsList.length - 1;
+
+                        const moveItem = (fromIdx: number, toIdx: number) => {
+                          if (toIdx < 0 || toIdx >= sortLessonsList.length) return;
+                          const updated = [...sortLessonsList];
+                          const [moved] = updated.splice(fromIdx, 1);
+                          updated.splice(toIdx, 0, moved);
+                          setSortLessonsList(updated);
+                          setIsSortOrderDirty(true);
+                        };
+
+                        const isBeingDragged = draggedSortIndex === idx;
+                        const isDragTarget = dragOverSortIndex === idx && draggedSortIndex !== idx;
+
+                        return (
+                          <React.Fragment key={lesson.id}>
+                            {/* Drop gap indicator preview */}
+                            {isDragTarget && draggedSortIndex !== null && draggedSortIndex < idx && (
+                              <div className="py-2.5 px-4 bg-indigo-50/90 border-2 border-dashed border-indigo-500 rounded-2xl text-center text-xs font-black text-indigo-700 animate-pulse flex items-center justify-center gap-2 shadow-inner">
+                                <span>↓ انتقال به جایگاه {idx + 1}</span>
+                              </div>
+                            )}
+
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedSortIndex(idx);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (dragOverSortIndex !== idx) {
+                                  setDragOverSortIndex(idx);
+                                }
+                              }}
+                              onDragLeave={() => {
+                                if (dragOverSortIndex === idx) {
+                                  setDragOverSortIndex(null);
+                                }
+                              }}
+                              onDragEnd={() => {
+                                setDraggedSortIndex(null);
+                                setDragOverSortIndex(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (draggedSortIndex !== null && draggedSortIndex !== idx) {
+                                  moveItem(draggedSortIndex, idx);
+                                }
+                                setDraggedSortIndex(null);
+                                setDragOverSortIndex(null);
+                              }}
+                              className={`flex items-center justify-between p-3.5 bg-slate-50 hover:bg-white border rounded-2xl transition-all group ${
+                                isBeingDragged
+                                  ? 'border-indigo-500 bg-indigo-50/60 opacity-40 scale-[0.98]'
+                                  : isDragTarget
+                                  ? 'border-indigo-400 bg-indigo-50/30 shadow-md ring-2 ring-indigo-300'
+                                  : 'border-slate-200/90 hover:border-indigo-300 shadow-2xs'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <div
+                                  className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-slate-100 transition"
+                                  title="برای جابه‌جایی بکشید و رها کنید"
+                                >
+                                  <GripVertical size={18} />
+                                </div>
+
+                                <div className="w-8 h-8 bg-indigo-100/80 text-indigo-700 rounded-xl font-black text-xs flex items-center justify-center shrink-0 border border-indigo-200/50 shadow-2xs">
+                                  {idx + 1}
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-xs font-black text-slate-800 truncate">{lesson.title}</h4>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-[10px] text-slate-400 font-bold">شناسه: {lesson.id.slice(0, 8)}</span>
+                                    {lesson.category && (
+                                      <span className="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded-md font-bold">{lesson.category}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Direct Jump Rank Selector & Step Controls */}
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
+                                  <span className="text-[10px] text-slate-400 font-bold px-1">انتقال به ردیف:</span>
+                                  <select
+                                    value={idx + 1}
+                                    onChange={(e) => {
+                                      const targetRank = parseInt(e.target.value, 10) - 1;
+                                      if (targetRank !== idx && targetRank >= 0 && targetRank < sortLessonsList.length) {
+                                        moveItem(idx, targetRank);
+                                      }
+                                    }}
+                                    className="text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-0.5 focus:outline-none cursor-pointer"
+                                  >
+                                    {sortLessonsList.map((_, posIdx) => (
+                                      <option key={posIdx} value={posIdx + 1}>
+                                        {posIdx + 1}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div className="flex items-center gap-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={isFirst}
+                                    onClick={() => moveItem(idx, idx - 1)}
+                                    className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer"
+                                    title="انتقال یک پله بالاتر"
+                                  >
+                                    <ArrowUp size={16} />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isLast}
+                                    onClick={() => moveItem(idx, idx + 1)}
+                                    className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer"
+                                    title="انتقال یک پله پایین‌تر"
+                                  >
+                                    <ArrowDown size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Drop gap indicator preview (for dragging downwards) */}
+                            {isDragTarget && draggedSortIndex !== null && draggedSortIndex > idx && (
+                              <div className="py-2.5 px-4 bg-indigo-50/90 border-2 border-dashed border-indigo-500 rounded-2xl text-center text-xs font-black text-indigo-700 animate-pulse flex items-center justify-center gap-2 shadow-inner">
+                                <span>↑ انتقال به جایگاه {idx + 1}</span>
+                              </div>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

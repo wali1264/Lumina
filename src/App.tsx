@@ -20,12 +20,14 @@ import {
   dbDeleteCourse,
   dbAddLesson,
   dbUpdateLesson,
+  dbBatchUpdateLessonOrders,
   dbDeleteLesson,
   dbAddSubmission,
   dbUpdateSubmission,
   dbEnrollStudent,
   dbApproveEnrollment,
   dbSendDirectMessage,
+  dbDeleteDirectMessage,
   dbDeleteUser,
   dbFetchRatings,
   dbAddRating
@@ -34,9 +36,7 @@ import PWAUpdateToast from './components/PWAUpdateToast';
 import DbSyncIndicator from './components/DbSyncIndicator';
 
 const pruneDirectMessages = (msgs: DirectMessage[]): DirectMessage[] => {
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  
-  // Group by conversation
+  // Group by conversation pair
   const groups: { [key: string]: DirectMessage[] } = {};
   msgs.forEach(m => {
     const key = [m.senderId, m.receiverId].sort().join('_');
@@ -49,23 +49,8 @@ const pruneDirectMessages = (msgs: DirectMessage[]): DirectMessage[] => {
     // Sort ascending by time
     group.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     
-    // Group messages: keep last 15
-    let conversations = group;
-    if (conversations.length > 15) {
-      conversations = conversations.slice(-15);
-    }
-
-    // Filter by time but keep at least the last 3 messages
-    const kept: DirectMessage[] = [];
-    const totalCount = conversations.length;
-    conversations.forEach((msg, idx) => {
-      const isRecent = new Date(msg.createdAt).getTime() > oneDayAgo;
-      const isForceKeep = (totalCount - idx) <= 3; // Keep last 3 regardless of age
-      if (isRecent || isForceKeep) {
-        kept.push(msg);
-      }
-    });
-
+    // Keep strictly up to 20 latest messages per conversation
+    const kept = group.length > 20 ? group.slice(-20) : group;
     pruned.push(...kept);
   });
 
@@ -144,8 +129,8 @@ export default function App() {
         // 2. Load the remaining heavier tables in parallel background requests.
         // This keeps the transitions buttery-smooth while hydrating details progressively.
         Promise.all([
-          Promise.resolve([]).then(() => {
-            setLessons([]);
+          dbFetchLessons(currentUser.role, currentUser.id).then(dbLessons => {
+            if (dbLessons) setLessons(dbLessons);
           }),
           dbFetchSubmissions(currentUser.role, currentUser.id).then(dbSubmissions => {
             if (dbSubmissions) setSubmissions(dbSubmissions);
@@ -191,12 +176,16 @@ export default function App() {
     const pollInterval = setInterval(async () => {
       setIsSyncing(true);
       try {
-        const [dbSubmissions, dbEnrollments, dbMsgs] = await Promise.all([
+        const [dbLessons, dbSubmissions, dbEnrollments, dbMsgs] = await Promise.all([
+          dbFetchLessons(currentUser.role, currentUser.id),
           dbFetchSubmissions(currentUser.role, currentUser.id),
           dbFetchEnrollments(currentUser.role, currentUser.id),
           dbFetchDirectMessages(currentUser.id)
         ]);
         
+        if (dbLessons) {
+          setLessons(dbLessons);
+        }
         if (dbSubmissions) {
           setSubmissions(dbSubmissions);
         }
@@ -425,15 +414,19 @@ export default function App() {
 
   const handleFetchLessonsForCourse = async (courseId: string) => {
     if (!currentUser) return;
-    if (!courseId) {
-      setLessons([]);
-      return;
-    }
     try {
       setIsSyncing(true);
-      const dbLessons = await dbFetchLessons(currentUser.role, currentUser.id, courseId);
-      if (dbLessons) {
-        setLessons(dbLessons);
+      if (!courseId) {
+        const dbLessons = await dbFetchLessons(currentUser.role, currentUser.id);
+        if (dbLessons) setLessons(dbLessons);
+      } else {
+        const dbLessons = await dbFetchLessons(currentUser.role, currentUser.id, courseId);
+        if (dbLessons) {
+          setLessons(prev => {
+            const otherLessons = prev.filter(l => l.courseId !== courseId);
+            return [...otherLessons, ...dbLessons];
+          });
+        }
       }
     } catch (err) {
       console.warn('Failed to fetch lessons for course:', err);
@@ -481,6 +474,38 @@ export default function App() {
         alert(`خطا در حذف درس از پایگاه داده: ${err.message || err}`);
         setLessons(originalLessons);
       }
+    }
+  };
+
+  const handleReorderLessons = async (orderedLessons: Lesson[]) => {
+    const originalLessons = [...lessons];
+
+    const orderMap = new Map<string, number>();
+    orderedLessons.forEach((l, index) => {
+      orderMap.set(l.id, index + 1);
+    });
+
+    const updated = lessons.map((l) => {
+      if (orderMap.has(l.id)) {
+        return { ...l, order: orderMap.get(l.id)! };
+      }
+      return l;
+    });
+
+    setLessons(updated);
+    localStorage.setItem('ai_lessons_db', JSON.stringify(updated));
+
+    try {
+      const dbPayload = orderedLessons.map((l, index) => ({
+        id: l.id,
+        order: index + 1
+      }));
+      await dbBatchUpdateLessonOrders(dbPayload);
+    } catch (err: any) {
+      console.error('Could not sync lesson reordering to Supabase:', err);
+      alert(`خطا در ذخیره‌سازی ترتیب دروس در پایگاه داده: ${err.message || err}`);
+      setLessons(originalLessons);
+      throw err;
     }
   };
 
@@ -648,6 +673,7 @@ export default function App() {
       console.error('Could not sync submission to Supabase', err);
       alert(`خطا در ثبت و ارسال تکالیف به سرور: ${err.message || err}`);
       setSubmissions(originalSubmissions);
+      throw err;
     }
   };
 
@@ -662,6 +688,31 @@ export default function App() {
       await dbSendDirectMessage(newMsg);
     } catch (err) {
       console.warn('Could not sync direct message to Supabase', err);
+    }
+  };
+
+  const handleDeleteDirectMessage = async (msgId: string) => {
+    setDirectMessages((prev) => {
+      const updated = prev.map((m) => {
+        if (m.id === msgId) {
+          return {
+            ...m,
+            content: 'این پیام حذف شده است',
+            attachmentType: undefined,
+            attachmentUrl: undefined,
+            fileName: undefined,
+            isDeleted: true
+          };
+        }
+        return m;
+      });
+      localStorage.setItem('ai_direct_messages_db', JSON.stringify(updated));
+      return updated;
+    });
+    try {
+      await dbDeleteDirectMessage(msgId);
+    } catch (err) {
+      console.warn('Could not sync deleted direct message to Supabase', err);
     }
   };
 
@@ -746,11 +797,13 @@ export default function App() {
           enrollments={enrollments}
           directMessages={directMessages}
           onSendDirectMessage={handleSendDirectMessage}
+          onDeleteDirectMessage={handleDeleteDirectMessage}
           onAddCourse={handleAddCourse}
           onUpdateCourse={handleUpdateCourse}
           onDeleteCourse={handleDeleteCourse}
           onAddLesson={handleAddLesson}
           onUpdateLesson={handleUpdateLesson}
+          onReorderLessons={handleReorderLessons}
           onDeleteLesson={handleDeleteLesson}
           onApproveEnrollment={handleApproveEnrollment}
           onApproveStudent={handleApproveStudent}
@@ -780,6 +833,7 @@ export default function App() {
           directMessages={directMessages}
           ratings={ratings}
           onSendDirectMessage={handleSendDirectMessage}
+          onDeleteDirectMessage={handleDeleteDirectMessage}
           onEnrollStudent={handleEnrollStudent}
           onAddSubmission={handleAddSubmission}
           onAddRating={handleAddRating}

@@ -407,7 +407,7 @@ export async function loginUser(email: string, password: string): Promise<UserTy
       phone,
       province,
       code: teacherCode || getTeacherCode(authUser.id),
-      avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
+      avatarUrl: '',
     };
   } else {
     // Student, check approval in 'students' table, perform lazy write if record is missing
@@ -489,7 +489,7 @@ export async function loginUser(email: string, password: string): Promise<UserTy
       selectedTeacherId,
       statusByTeacher: 'accepted',
       currentLessonIndex: 0,
-      avatarUrl: 'https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&q=80&w=200',
+      avatarUrl: u.avatar_url || '',
     };
   }
 }
@@ -731,7 +731,7 @@ export async function dbFetchUsers(role: string, userId: string): Promise<UserTy
           phone: u.phone,
           province: u.province,
           code: getTeacherCode(u.id, u.code),
-          avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200'
+          avatarUrl: u.avatar_url || ''
         })));
       }
       if (studentsRes.data) {
@@ -747,7 +747,7 @@ export async function dbFetchUsers(role: string, userId: string): Promise<UserTy
           selectedTeacherId: u.selected_teacher_id,
           statusByTeacher: u.status_by_teacher,
           currentLessonIndex: 0,
-          avatarUrl: 'https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&q=80&w=200'
+          avatarUrl: u.avatar_url || ''
         })));
       }
       return list;
@@ -770,7 +770,7 @@ export async function dbFetchUsers(role: string, userId: string): Promise<UserTy
           phone: u.phone,
           province: u.province,
           code: getTeacherCode(u.id, u.code),
-          avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200'
+          avatarUrl: u.avatar_url || ''
         })));
       }
       if (studentsRes.data) {
@@ -786,7 +786,7 @@ export async function dbFetchUsers(role: string, userId: string): Promise<UserTy
           selectedTeacherId: u.selected_teacher_id,
           statusByTeacher: u.status_by_teacher,
           currentLessonIndex: 0,
-          avatarUrl: 'https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&q=80&w=200'
+          avatarUrl: u.avatar_url || ''
         })));
       }
       return list;
@@ -814,7 +814,7 @@ export async function dbFetchUsers(role: string, userId: string): Promise<UserTy
           selectedTeacherId: studentRecord.selected_teacher_id,
           statusByTeacher: studentRecord.status_by_teacher,
           currentLessonIndex: 0,
-          avatarUrl: 'https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&q=80&w=200'
+          avatarUrl: studentRecord.avatar_url || ''
         }
       ];
 
@@ -828,7 +828,7 @@ export async function dbFetchUsers(role: string, userId: string): Promise<UserTy
           phone: teacherRecord.phone,
           province: teacherRecord.province,
           code: getTeacherCode(teacherRecord.id, teacherRecord.code),
-          avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200'
+          avatarUrl: teacherRecord.avatar_url || ''
         });
       }
 
@@ -1043,7 +1043,8 @@ export async function dbFetchDirectMessages(userId: string): Promise<DirectMessa
       attachmentType: m.attachment_type || undefined,
       attachmentUrl: m.attachment_url || undefined,
       fileName: m.file_name || undefined,
-      createdAt: m.created_at
+      createdAt: m.created_at,
+      isDeleted: m.content === 'این پیام حذف شده است'
     }));
   } catch (err) {
     console.warn('Failed to fetch direct messages from database', err);
@@ -1236,6 +1237,21 @@ export async function dbUpdateLesson(lesson: Lesson): Promise<void> {
   console.log('[SMART CONSOLE - DB UPDATE] Lesson updated successfully!');
 }
 
+export async function dbBatchUpdateLessonOrders(lessonOrders: { id: string; order: number }[]): Promise<void> {
+  if (!lessonOrders || lessonOrders.length === 0) return;
+  
+  const updates = lessonOrders.map(({ id, order }) =>
+    supabase.from('lessons').update({ order_index: order }).eq('id', id)
+  );
+
+  const results = await Promise.all(updates);
+  const errors = results.filter(r => r.error);
+  if (errors.length > 0) {
+    console.error('[SMART CONSOLE - DB BATCH ERROR] Failed to update lesson orders in DB', errors);
+    throw new Error('خطا در ذخیره‌سازی ترتیب برخی دروس در پایگاه داده');
+  }
+}
+
 export async function dbDeleteLesson(lessonId: string): Promise<void> {
   const { error } = await supabase.from('lessons').delete().eq('id', lessonId);
   if (error) {
@@ -1351,6 +1367,40 @@ export async function dbSendDirectMessage(msg: DirectMessage): Promise<void> {
   if (error) {
     console.error('Failed to save message in DB', error);
     throw error;
+  }
+
+  // Auto-prune messages in database to keep only the latest 20 for this conversation pair
+  try {
+    const { data: conversationMsgs } = await supabase
+      .from('direct_messages')
+      .select('id, created_at')
+      .or(`and(sender_id.eq.${msg.senderId},receiver_id.eq.${msg.receiverId}),and(sender_id.eq.${msg.receiverId},receiver_id.eq.${msg.senderId})`)
+      .order('created_at', { ascending: false });
+
+    if (conversationMsgs && conversationMsgs.length > 20) {
+      const idsToDelete = conversationMsgs.slice(20).map(m => m.id);
+      if (idsToDelete.length > 0) {
+        await supabase.from('direct_messages').delete().in('id', idsToDelete);
+      }
+    }
+  } catch (pruneErr) {
+    console.warn('Auto-pruning direct messages warning:', pruneErr);
+  }
+}
+
+export async function dbDeleteDirectMessage(msgId: string): Promise<void> {
+  const { error } = await supabase
+    .from('direct_messages')
+    .update({
+      content: 'این پیام حذف شده است',
+      attachment_type: null,
+      attachment_url: null,
+      file_name: null
+    })
+    .eq('id', msgId);
+
+  if (error) {
+    console.error('Failed to update deleted message in DB', error);
   }
 }
 
