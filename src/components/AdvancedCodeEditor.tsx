@@ -146,15 +146,15 @@ export default function AdvancedCodeEditor({ value, onChange, disabled }: Advanc
   };
 
   return (
-    <div className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4 text-right" dir="rtl">
+    <div className="w-full bg-slate-50/80 border border-slate-200/90 rounded-3xl p-5 space-y-4 text-right shadow-2xs" dir="rtl">
       
       {/* Header Info */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div className="flex items-center justify-between border-b border-slate-200/80 pb-3">
         <div className="flex items-center gap-2">
-          <Code className="text-indigo-400 h-5 w-5" />
-          <span className="text-sm font-black text-white">حل چالش برنامه‌نویسی در VS Code</span>
+          <Code className="text-indigo-600 h-5 w-5" />
+          <span className="text-sm font-black text-slate-900">حل چالش برنامه‌نویسی در VS Code</span>
         </div>
-        <span className="text-[10px] text-slate-500 font-mono">VS Code Integration</span>
+        <span className="text-[10px] text-indigo-700 bg-indigo-100/70 border border-indigo-200/60 font-mono font-bold px-2 py-0.5 rounded-lg">VS Code Integration</span>
       </div>
 
       {/* Main Interactive Controls Row */}
@@ -164,7 +164,7 @@ export default function AdvancedCodeEditor({ value, onChange, disabled }: Advanc
         <button
           type="button"
           onClick={triggerVSCodeOpen}
-          className="flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all duration-200 active:scale-95 shadow-md shadow-indigo-900/20"
+          className="flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all duration-200 active:scale-95 shadow-md shadow-indigo-200 cursor-pointer"
         >
           <ExternalLink size={14} />
           <span>ورود و باز کردن VS Code</span>
@@ -189,15 +189,15 @@ export default function AdvancedCodeEditor({ value, onChange, disabled }: Advanc
           />
 
           {zipData ? (
-            /* Uploaded State - Compact */
-            <div className="flex items-center justify-between p-2 bg-emerald-950/20 border border-emerald-500/30 rounded-xl">
+            /* Uploaded State - Compact Light Design */
+            <div className="flex items-center justify-between p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl shadow-2xs">
               <div className="flex items-center gap-2 min-w-0">
-                <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
                 <div className="min-w-0 text-right">
-                  <span className="block text-[11px] font-bold text-white truncate max-w-[120px]" dir="ltr">
+                  <span className="block text-[11px] font-black text-slate-900 truncate max-w-[120px]" dir="ltr">
                     {zipData.fileName}
                   </span>
-                  <span className="block text-[9px] text-slate-400 font-mono">{zipData.fileSize}</span>
+                  <span className="block text-[9px] text-slate-500 font-mono font-bold">{zipData.fileSize}</span>
                 </div>
               </div>
 
@@ -205,36 +205,36 @@ export default function AdvancedCodeEditor({ value, onChange, disabled }: Advanc
                 <button
                   type="button"
                   onClick={downloadUploadedFile}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition"
+                  className="p-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition shadow-2xs cursor-pointer"
                   title="دانلود و بررسی فایل"
                 >
-                  <Download size={12} />
+                  <Download size={13} />
                 </button>
                 {!disabled && (
                   <button
                     type="button"
                     onClick={handleRemoveFile}
-                    className="p-1.5 bg-rose-950/40 hover:bg-rose-900/30 text-rose-400 rounded-lg transition border border-rose-900/30"
+                    className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition border border-rose-200 cursor-pointer"
                     title="حذف فایل"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
             </div>
           ) : (
-            /* Standard Upload Action Button */
+            /* Standard Upload Action Button - Light */
             <button
               type="button"
               onClick={triggerFileInput}
               disabled={disabled}
-              className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-dashed transition-all duration-200 text-xs font-bold ${
+              className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-dashed transition-all duration-200 text-xs font-black cursor-pointer ${
                 dragActive 
-                  ? 'border-indigo-500 bg-indigo-950/20 text-indigo-300' 
-                  : 'border-slate-700 hover:border-indigo-500/40 bg-slate-800/40 hover:bg-slate-800/70 text-slate-300'
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-inner' 
+                  : 'border-indigo-200 hover:border-indigo-400 bg-white hover:bg-indigo-50/50 text-indigo-900 shadow-2xs'
               } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Upload size={14} />
+              <Upload size={14} className="text-indigo-600" />
               <span>{dragActive ? 'فایل را رها کنید' : 'آپلود فایل پاسخ (ZIP)'}</span>
             </button>
           )}
@@ -243,29 +243,29 @@ export default function AdvancedCodeEditor({ value, onChange, disabled }: Advanc
       </div>
 
       {errorMsg && (
-        <p className="text-[10px] text-rose-500 font-bold text-center animate-pulse">
+        <p className="text-[10px] text-rose-600 font-bold text-center animate-pulse bg-rose-50 p-2 rounded-xl border border-rose-200">
           {errorMsg}
         </p>
       )}
 
       {/* Legacy Text Answer Warning (Fallback check) */}
       {isLegacyText && (
-        <div className="p-2.5 bg-amber-950/10 border border-amber-900/20 rounded-xl text-right">
-          <p className="text-[10px] text-amber-400 leading-relaxed">
+        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-right">
+          <p className="text-[10px] text-amber-800 font-bold leading-relaxed">
             ⚠️ یک پاسخ متنی قدیمی ثبت شده است. آپلود فایل ZIP جدید، جایگزین پاسخ قدیمی خواهد شد.
           </p>
         </div>
       )}
 
       {/* Single Clean Installation Link Footer */}
-      <div className="flex items-center gap-1.5 justify-start text-[10px] text-slate-500 border-t border-slate-800/50 pt-2.5">
-        <Info size={12} className="text-slate-400" />
-        <span>نرم‌افزار VS Code را نصب ندارید؟</span>
+      <div className="flex items-center gap-1.5 justify-start text-[10px] text-slate-500 border-t border-slate-200/80 pt-2.5">
+        <Info size={13} className="text-indigo-500 shrink-0" />
+        <span className="font-bold">نرم‌افزار VS Code را نصب ندارید؟</span>
         <a 
           href="https://code.visualstudio.com/Download" 
           target="_blank" 
           rel="noreferrer" 
-          className="text-indigo-400 hover:text-indigo-300 hover:underline transition font-bold"
+          className="text-indigo-600 hover:text-indigo-800 hover:underline transition font-black"
         >
           دریافت و نصب رایگان از سایت رسمی
         </a>

@@ -1802,7 +1802,21 @@ export default function StudentPanel({
             </div>
 
             {/* Textbook Column */}
-            <div className={`flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-white ${activeLessonTab === 'textbook' ? 'block' : 'hidden'}`}>
+            <div 
+              onCopy={(e) => {
+                e.preventDefault();
+                alert("جهت حفظ اصالت و سلامت سنجش علمی، کپی‌برداری مستقیم از متن درس غیرفعال می‌باشد.");
+              }}
+              onCut={(e) => {
+                e.preventDefault();
+                alert("جهت حفظ اصالت و سلامت سنجش علمی، کپی‌برداری مستقیم از متن درس غیرفعال می‌باشد.");
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                alert("امکان کپی از متن درس غیرفعال است. می‌توانید با انتخاب متن از دکمه «آموزش و راهنمایی سقراطی مربی» استفاده کنید.");
+              }}
+              className={`flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-white select-text ${activeLessonTab === 'textbook' ? 'block' : 'hidden'}`}
+            >
               
               {/* Media/Explanation Controls */}
               <div className="flex items-center justify-end flex-wrap gap-4 pb-3 border-b border-slate-100">
@@ -2315,6 +2329,14 @@ export default function StudentPanel({
                                 value={answerValue}
                                 disabled={disabled}
                                 onChange={(e) => setStudentAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
+                                onPaste={(e) => {
+                                  e.preventDefault();
+                                  alert("برای سنجش دقیق یادگیری شما، امکان چسباندن متن (Paste) غیرفعال شده است. لطفاً پاسخ خود را به صورت دستی تایپ نمایید.");
+                                }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  alert("امکان رهاسازی متن (Drop) غیرفعال است. لطفاً پاسخ را تایپ کنید.");
+                                }}
                                 placeholder="توضیحات پاسخ را اینجا تایپ کنید..."
                                 className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none placeholder:text-slate-400 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                               />
@@ -2359,6 +2381,14 @@ export default function StudentPanel({
                                   value={answerValue}
                                   disabled={disabled}
                                   onChange={(e) => setStudentAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
+                                  onPaste={(e) => {
+                                    e.preventDefault();
+                                    alert("لطفاً آدرس لینک پروژه را به صورت دستی تایپ نمایید.");
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    alert("امکان رهاسازی متن غیرفعال است.");
+                                  }}
                                   placeholder="https://my-project-url.vercel.app"
                                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-mono focus:outline-none placeholder:text-slate-400 text-left disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
